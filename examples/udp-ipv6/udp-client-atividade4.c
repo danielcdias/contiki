@@ -24,6 +24,8 @@
  * SUCH DAMAGE.
  *
  * This file is part of the Contiki operating system.
+ *            uip_ipaddr_copy(&client_conn->ripaddr, &UIP_IP_BUF->srcipaddr);
+            client_conn->rport = UIP_UDP_BUF->destport;
  *
  */
 
@@ -39,10 +41,15 @@
 #define DEBUG DEBUG_PRINT
 #include "net/ip/uip-debug.h"
 
-#define SEND_INTERVAL		15 * CLOCK_SECOND
-#define MAX_PAYLOAD_LEN		40
+#define SEND_INTERVAL       5 * CLOCK_SECOND
+#define MAX_PAYLOAD_LEN     40
 #define CONN_PORT     8802
-#define MDNS 0
+#define MDNS 1
+
+#define LED_TOGGLE_REQUEST (0x79)
+#define LED_SET_STATE (0x7A)
+#define LED_GET_STATE (0x7B)
+#define LED_STATE (0x7C)
 
 static char buf[MAX_PAYLOAD_LEN];
 
@@ -58,13 +65,53 @@ AUTOSTART_PROCESSES(&resolv_process,&udp_client_process);
 static void
 tcpip_handler(void)
 {
-    char *dados;
-
-    if(uip_newdata()) {
-        dados = uip_appdata;
-        dados[uip_datalen()] = '\0';
-        printf("Response from the server: '%s'\n", dados);
+    char i=0;
+    #define SEND_ECHO (0xBA)
+    if(uip_newdata()) //verifica se novos dados foram recebidos
+    {
+        char* dados = ((char*)uip_appdata); //este buffer ´e padr˜ao do contiki
+        PRINTF("Recebidos %d bytes\n", uip_datalen());
+        switch (dados[0])
+        {
+        case LED_GET_STATE:
+        {
+            uip_ipaddr_copy(&client_conn->ripaddr, &UIP_IP_BUF->srcipaddr);
+            client_conn->rport = UIP_UDP_BUF->destport;
+            buf[0] = LED_STATE;
+            buf[1] = leds_get();
+            uip_udp_packet_send(client_conn, buf, 2);
+            PRINTF("Enviando resposta LED_GET_STATE [");
+            PRINT6ADDR(&client_conn->ripaddr);
+            PRINTF("]:%u\n", UIP_HTONS(client_conn->rport));
+            break;
+        }
+        case LED_SET_STATE:
+        {
+            uip_ipaddr_copy(&client_conn->ripaddr, &UIP_IP_BUF->srcipaddr);
+            client_conn->rport = UIP_UDP_BUF->destport;
+            leds_off(LEDS_ALL);
+            leds_on(dados[1]);
+            buf[0] = LED_STATE;
+            buf[1] = leds_get();
+            uip_udp_packet_send(client_conn, buf, 2);
+            PRINTF("Enviando resposta LED_SET_STATE [");
+            PRINT6ADDR(&client_conn->ripaddr);
+            PRINTF("]:%u\n", UIP_HTONS(client_conn->rport));
+            break;
+        }
+        default:
+        {
+            PRINTF("Comando Invalido: ");
+            for(i=0;i<uip_datalen();i++)
+            {
+                PRINTF("0x%02X ",dados[i]);
+            }
+            PRINTF("\n");
+            break;
+        }
+        }
     }
+    return;
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -72,12 +119,15 @@ timeout_handler(void)
 {
     char payload = 0;
 
-    buf[0] = payload;
+    buf[0] = LED_TOGGLE_REQUEST;
     if(uip_ds6_get_global(ADDR_PREFERRED) == NULL) {
       PRINTF("Aguardando auto-configuracao de IP\n");
       return;
     }
-    uip_udp_packet_send(client_conn, buf, strlen(buf));
+    PRINTF("Cliente para [");
+    PRINT6ADDR(&client_conn->ripaddr);
+    PRINTF("]:%u\n", UIP_HTONS(client_conn->rport));
+    uip_udp_packet_send(client_conn, buf, 1);
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -181,26 +231,14 @@ PROCESS_THREAD(udp_client_process, ev, data)
 
   print_local_addresses();
 
-  static resolv_status_t status = RESOLV_STATUS_UNCACHED;
-  while(status != RESOLV_STATUS_CACHED) {
-    status = set_connection_address(&ipaddr);
-
-    if(status == RESOLV_STATUS_RESOLVING) {
-      //PROCESS_WAIT_EVENT_UNTIL(ev == resolv_event_found);
-        PROCESS_WAIT_EVENT();
-    } else if(status != RESOLV_STATUS_CACHED) {
-      PRINTF("Can't get connection address.\n");
-      PROCESS_YIELD();
-    }
-  }
-
 #if MDNS
   static resolv_status_t status = RESOLV_STATUS_UNCACHED;
   while(status != RESOLV_STATUS_CACHED) {
       status = set_connection_address(&ipaddr);
 
       if(status == RESOLV_STATUS_RESOLVING) {
-          PROCESS_WAIT_EVENT_UNTIL(ev == resolv_event_found);
+          //PROCESS_WAIT_EVENT_UNTIL(ev == resolv_event_found);
+          PROCESS_WAIT_EVENT();
       } else if(status != RESOLV_STATUS_CACHED) {
           PRINTF("Can't get connection address.\n");
           PROCESS_YIELD();
@@ -208,7 +246,11 @@ PROCESS_THREAD(udp_client_process, ev, data)
   }
 #else
   //c_onfigures the destination IPv6 address
-  uip_ip6addr(&ipaddr, 0xfe80, 0, 0, 0, 0x215, 0x2000, 0x0002, 0x2145);
+  //uip_ip6addr(&ipaddr, 0xfd00, 0, 0, 0, 0x0212, 0x4b00, 0x0aff, 0x6b01);
+  // 2804:14c:8786:8166:f41d:7811:2f8a:1d38
+  //uip_ip6addr(&ipaddr, 0x2804, 0x14c, 0x8786, 0x8166, 0xf41d, 0x7811, 0x2f8a, 0x1d38);
+ uip_ip6addr(&ipaddr, 0x2804, 0x014c, 0x8786, 0x8166, 0x3099, 0x9bf5, 0x5aa4, 0xfc16);
+  //uip_ip6addr(&ipaddr, 0x2804, 0x014c, 0x8786, 0x8166, 0x756b, 0x998e, 0x5c3a, 0xf76d);
 #endif
   /* new connection with remote host */
   client_conn = udp_new(&ipaddr, UIP_HTONS(CONN_PORT), NULL);
@@ -216,7 +258,7 @@ PROCESS_THREAD(udp_client_process, ev, data)
 
   PRINT6ADDR(&client_conn->ripaddr);
   PRINTF(" local/remote port %u/%u\n",
-	UIP_HTONS(client_conn->lport), UIP_HTONS(client_conn->rport));
+    UIP_HTONS(client_conn->lport), UIP_HTONS(client_conn->rport));
 
   etimer_set(&et, SEND_INTERVAL);
   while(1) {

@@ -1,5 +1,5 @@
 #all: udp-server udp-client udp-server-atividade4
-all: udp-server-atividade4 udp-client-atividade4 udp-server-atividadeAdvanced
+all: udp-server-atividade4 udp-client-atividade4 udp-server-atividadeAdvanced udp-client-atividade-adv
 
 CONTIKI = ../..
 CONTIKI_WITH_IPV6 = 1
