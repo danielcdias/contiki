@@ -80,6 +80,7 @@ static process_event_t mqttsn_connack_event;
 PROCESS(example_mqttsn_process, "Configure Connection and Topic Registration");
 PROCESS(publish_process, "register topic and publish data");
 PROCESS(ctrl_subscription_process, "subscribe to a device control channel");
+PROCESS_NAME(cetic_6lbr_client_process);
 
 
 AUTOSTART_PROCESSES(&example_mqttsn_process);
@@ -178,7 +179,7 @@ PROCESS_THREAD(publish_process, ev, data)
   static uint8_t registration_tries;
   static struct etimer send_timer;
   static uint8_t buf_len;
-  static uint8_t message_number;
+  static uint32_t message_number;
   static char buf[20];
   static mqtt_sn_register_request *rreq = &regreq;
 
@@ -210,7 +211,7 @@ PROCESS_THREAD(publish_process, ev, data)
     {
       PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&send_timer));
 
-      sprintf(buf, "Message %d", message_number);
+      sprintf(buf, "Message %u", message_number);
       printf("publishing at topic: %s -> msg: %s\n", pub_topic, buf);
       message_number++;
       buf_len = strlen(buf);
@@ -293,7 +294,7 @@ set_connection_address(uip_ipaddr_t *ipaddr)
 {
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       sctdf.com.br
+#define UDP_CONNECTION_ADDR       pksr.eletrica.eng.br //fd00:baba:ca::1
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
@@ -357,6 +358,9 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xc0a8, 0xd480);//192.168.212.128 with tayga
   //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xac10, 0xdc01);//172.16.220.1 with tayga
   uip_ip6addr(&google_dns, 0x2001, 0x4860, 0x4860, 0x0, 0x0, 0x0, 0x0, 0x8888);//172.16.220.1 with tayga
+#if CC26XX_WEB_DEMO_6LBR_CLIENT
+  process_start(&cetic_6lbr_client_process, NULL);
+#endif
   etimer_set(&periodic_timer, 2*CLOCK_SECOND);
   while(uip_ds6_get_global(ADDR_PREFERRED) == NULL)
   {
@@ -384,10 +388,12 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
     status = set_connection_address(&broker_addr);
 
     if(status == RESOLV_STATUS_RESOLVING) {
-      PROCESS_WAIT_EVENT_UNTIL(ev == resolv_event_found);
+      //PROCESS_WAIT_EVENT_UNTIL(ev == resolv_event_found);
+      PROCESS_WAIT_EVENT();
     } else if(status != RESOLV_STATUS_CACHED) {
       PRINTF("Can't get connection address.\n");
-      PROCESS_YIELD();
+      etimer_set(&periodic_timer, 2*CLOCK_SECOND);
+      PROCESS_WAIT_EVENT();
     }
   }
 

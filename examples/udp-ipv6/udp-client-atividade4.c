@@ -62,8 +62,7 @@ static struct uip_udp_conn *client_conn;
 PROCESS(udp_client_process, "UDP client process");
 AUTOSTART_PROCESSES(&resolv_process,&udp_client_process);
 /*---------------------------------------------------------------------------*/
-static void
-tcpip_handler(void)
+static void tcpip_handler(void)
 {
     char i=0;
     #define SEND_ECHO (0xBA)
@@ -167,7 +166,7 @@ set_connection_address(uip_ipaddr_t *ipaddr)
 {
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       contiki-udp-server.local
+#define UDP_CONNECTION_ADDR       2804:14c:8786:8166:6802:493b:ad72:b883 //contiki-udp-server.local
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
@@ -249,7 +248,10 @@ PROCESS_THREAD(udp_client_process, ev, data)
   //uip_ip6addr(&ipaddr, 0xfd00, 0, 0, 0, 0x0212, 0x4b00, 0x0aff, 0x6b01);
   // 2804:14c:8786:8166:f41d:7811:2f8a:1d38
   //uip_ip6addr(&ipaddr, 0x2804, 0x14c, 0x8786, 0x8166, 0xf41d, 0x7811, 0x2f8a, 0x1d38);
- uip_ip6addr(&ipaddr, 0x2804, 0x014c, 0x8786, 0x8166, 0x3099, 0x9bf5, 0x5aa4, 0xfc16);
+  // 2804:14c:8786:8166:3099:9bf5:5aa4:fc16
+  // uip_ip6addr(&ipaddr, 0x2804, 0x014c, 0x8786, 0x8166, 0x3099, 0x9bf5, 0x5aa4, 0xfc16);
+  // 2804:14c:8786:8166:5979:1073:a316:fb8b
+  uip_ip6addr(&ipaddr, 0x2804, 0x014c, 0x8786, 0x8166, 0x5979, 0x1073, 0xa316, 0xfb8b);
   //uip_ip6addr(&ipaddr, 0x2804, 0x014c, 0x8786, 0x8166, 0x756b, 0x998e, 0x5c3a, 0xf76d);
 #endif
   /* new connection with remote host */
