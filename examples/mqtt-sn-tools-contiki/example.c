@@ -46,6 +46,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 #include "dev/leds.h"
 
 #define UDP_PORT 1883
@@ -192,7 +193,9 @@ PROCESS_THREAD(publish_process, ev, data)
   {
 
     reg_topic_msg_id = mqtt_sn_register_try(rreq,&mqtt_sn_c,pub_topic,REPLY_TIMEOUT);
-    PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(rreq));
+    //PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(rreq));
+    etimer_set(&send_timer, 5*CLOCK_SECOND);
+    PROCESS_WAIT_EVENT();
     if (mqtt_sn_request_success(rreq)) {
       registration_tries = 4;
       printf("registration acked\n");
@@ -210,8 +213,7 @@ PROCESS_THREAD(publish_process, ev, data)
     while(1)
     {
       PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&send_timer));
-
-      sprintf(buf, "Message %u", message_number);
+      sprintf(buf, "Message %" PRIu32, message_number); //removendo o warning do GCC para o uint32_t
       printf("publishing at topic: %s -> msg: %s\n", pub_topic, buf);
       message_number++;
       buf_len = strlen(buf);
@@ -234,6 +236,7 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data)
 {
   static uint8_t subscription_tries;
   static mqtt_sn_subscribe_request *sreq = &subreq;
+  static struct etimer periodic_timer;
   PROCESS_BEGIN();
   subscription_tries = 0;
   memcpy(ctrl_topic,device_id,16);
@@ -243,7 +246,9 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data)
       printf("subscribing... topic: %s\n", ctrl_topic);
       ctrl_topic_msg_id = mqtt_sn_subscribe_try(sreq,&mqtt_sn_c,ctrl_topic,0,REPLY_TIMEOUT);
 
-      PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(sreq));
+      //PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(sreq));
+      etimer_set(&periodic_timer, 5*CLOCK_SECOND);
+      PROCESS_WAIT_EVENT();
       if (mqtt_sn_request_success(sreq)) {
           subscription_tries = 4;
           printf("subscription acked\n");
@@ -294,7 +299,7 @@ set_connection_address(uip_ipaddr_t *ipaddr)
 {
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       pksr.eletrica.eng.br //fd00:baba:ca::1
+#define UDP_CONNECTION_ADDR       pksr.eletrica.eng.br
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
@@ -338,6 +343,7 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   static struct etimer et;
   static uip_ipaddr_t broker_addr,google_dns;
   static uint8_t connection_retries = 0;
+  static resolv_status_t status;
   char contiki_hostname[16];
 
   PROCESS_BEGIN();
@@ -383,7 +389,7 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
     uip_nameserver_update(&google_dns, UIP_NAMESERVER_INFINITE_LIFETIME);
   }
 
-  static resolv_status_t status = RESOLV_STATUS_UNCACHED;
+  status = RESOLV_STATUS_UNCACHED;
   while(status != RESOLV_STATUS_CACHED) {
     status = set_connection_address(&broker_addr);
 
@@ -414,7 +420,7 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   printf("requesting connection \n ");
   connection_timeout_event = process_alloc_event();
   //testegoto:
-  //connection_retries = 0;
+  connection_retries = 0;
   ctimer_set( &connection_timer, REPLY_TIMEOUT, connection_timer_callback, NULL);
   mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
   connection_state = MQTTSN_WAITING_CONNACK;
@@ -443,7 +449,9 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   if (connection_state == MQTTSN_CONNECTED){
     process_start(&ctrl_subscription_process, 0);
     etimer_set(&periodic_timer, 3*CLOCK_SECOND);
-    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
+    //PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
+    while(!etimer_expired(&periodic_timer))
+        PROCESS_WAIT_EVENT();
     process_start(&publish_process, 0);
     etimer_set(&et, 2*CLOCK_SECOND);
     while(1)
