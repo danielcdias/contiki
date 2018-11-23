@@ -14,7 +14,7 @@ def check_mac_address(value):
 
 class ControlBoard(models.Model):
     nickname = models.CharField(max_length=100, unique=True)
-    board_nome = models.CharField(max_length=100, verbose_name='board model')
+    board_model = models.CharField(max_length=100, verbose_name='board model')
     port_number = models.IntegerField(verbose_name='port number', default=8802)
     ipv6_address = models.GenericIPAddressField(protocol='IPv6', verbose_name='IPv6 address', editable=False, null=True)
     mac_address = models.CharField(max_length=17, verbose_name='MAC address', unique=True,
