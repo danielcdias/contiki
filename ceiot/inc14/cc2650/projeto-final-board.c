@@ -34,6 +34,8 @@
 #include "contiki-net.h"
 #include "net/ip/resolv.h"
 #include "dev/leds.h"
+#include "ti-lib.h"
+#include "lpm.h"
 
 #include <string.h>
 #include <stdbool.h>
@@ -46,21 +48,85 @@
 #define CONN_PORT     8802
 #define MDNS 1
 
-#define LED_TOGGLE_REQUEST (0x79)
-#define LED_SET_STATE (0x7A)
-#define LED_GET_STATE (0x7B)
+#define LED_SET_STATE (0x79)
 #define LED_STATE (0x7C)
 
 static char buf[MAX_PAYLOAD_LEN];
 
 static struct uip_udp_conn *client_conn;
 
+static u_int16_t current_duty = 0;
+static u_int16_t loadvalue, ticks;
+
 #define UIP_UDP_BUF  ((struct uip_udp_hdr *)&uip_buf[UIP_LLH_LEN + UIP_IPH_LEN])
 #define UIP_IP_BUF   ((struct uip_ip_hdr *)&uip_buf[UIP_LLH_LEN])
+
+uint8_t pwm_request_max_pm(void)
+{
+    return LPM_MODE_DEEP_SLEEP;
+}
+
+void sleep_enter(void)
+{
+    leds_on(LEDS_RED);
+}
+
+void sleep_leave(void)
+{
+    leds_off(LEDS_RED);
+}
+
+LPM_MODULE(pwmdrive_module, pwm_request_max_pm, sleep_enter, sleep_leave, LPM_DOMAIN_PERIPH);
+
+u_int16_t pwminit(u_int32_t freq)
+{
+    u_int32_t load = 0;
+    ti_lib_ioc_pin_type_gpio_output(IOID_14);
+    ti_lib_ioc_pin_type_gpio_output(IOID_15);
+    leds_off(LEDS_RED);
+
+    /* Enable GPT0 clocks under active, sleep, deep sleep */
+    ti_lib_prcm_peripheral_run_enable(PRCM_PERIPH_TIMER0);
+    ti_lib_prcm_peripheral_sleep_enable(PRCM_PERIPH_TIMER0);
+    ti_lib_prcm_peripheral_deep_sleep_enable(PRCM_PERIPH_TIMER0);
+    ti_lib_prcm_load_set();
+    while(!ti_lib_prcm_load_get());
+
+    /* Register with LPM. This will keep the PERIPH PD powered on
+    * during deep sleep, allowing the pwm to keep working while the chip is
+    * being power-cycled */
+    lpm_register_module(&pwmdrive_module);
+
+    /* Drive the I/O ID with GPT0 / Timer A */
+    ti_lib_ioc_port_configure_set(IOID_14, IOC_PORT_MCU_PORT_EVENT0, IOC_STD_OUTPUT);
+    ti_lib_ioc_port_configure_set(IOID_15, IOC_PORT_MCU_PORT_EVENT0, IOC_STD_OUTPUT);
+
+    /* GPT0 / Timer A: PWM, Interrupt Enable */
+    ti_lib_timer_configure(GPT0_BASE, TIMER_CFG_SPLIT_PAIR | TIMER_CFG_A_PWM | TIMER_CFG_B_PWM);
+
+    /* Stop the timers */
+    ti_lib_timer_disable(GPT0_BASE, TIMER_A);
+    ti_lib_timer_disable(GPT0_BASE, TIMER_B);
+    if(freq > 0) {
+        load = (GET_MCU_CLOCK / freq);
+        ti_lib_timer_load_set(GPT0_BASE, TIMER_A, load);
+        ti_lib_timer_match_set(GPT0_BASE, TIMER_A, load-1);
+        /* Start */
+        ti_lib_timer_enable(GPT0_BASE, TIMER_A);
+    }
+    return load;
+}
 
 /*---------------------------------------------------------------------------*/
 PROCESS(udp_client_process, "UDP client process");
 AUTOSTART_PROCESSES(&resolv_process,&udp_client_process);
+/*---------------------------------------------------------------------------*/
+static void set_led(void)
+{
+    ticks = (current_duty == 0 ? 1 : (current_duty * loadvalue) / 100);
+    printf("Current Duty: %i - ticks: %i - loadvalue: %i\n", current_duty, ticks, loadvalue);
+    ti_lib_timer_match_set(GPT0_BASE, TIMER_A, loadvalue - ticks);
+}
 /*---------------------------------------------------------------------------*/
 static void tcpip_handler(void)
 {
@@ -72,26 +138,14 @@ static void tcpip_handler(void)
         PRINTF("Recebidos %d bytes\n", uip_datalen());
         switch (dados[0])
         {
-        case LED_GET_STATE:
-        {
-            uip_ipaddr_copy(&client_conn->ripaddr, &UIP_IP_BUF->srcipaddr);
-            client_conn->rport = UIP_UDP_BUF->destport;
-            buf[0] = LED_STATE;
-            buf[1] = leds_get();
-            uip_udp_packet_send(client_conn, buf, 2);
-            PRINTF("Enviando resposta LED_GET_STATE [");
-            PRINT6ADDR(&client_conn->ripaddr);
-            PRINTF("]:%u\n", UIP_HTONS(client_conn->rport));
-            break;
-        }
         case LED_SET_STATE:
         {
             uip_ipaddr_copy(&client_conn->ripaddr, &UIP_IP_BUF->srcipaddr);
             client_conn->rport = UIP_UDP_BUF->destport;
-            leds_off(LEDS_ALL);
-            leds_on(dados[1]);
+            current_duty = dados[1];
+            set_led();
             buf[0] = LED_STATE;
-            buf[1] = leds_get();
+            buf[1] = current_duty;
             uip_udp_packet_send(client_conn, buf, 2);
             PRINTF("Enviando resposta LED_SET_STATE [");
             PRINT6ADDR(&client_conn->ripaddr);
@@ -116,9 +170,8 @@ static void tcpip_handler(void)
 static void
 timeout_handler(void)
 {
-    char payload = 0;
-
-    buf[0] = LED_TOGGLE_REQUEST;
+    buf[0] = LED_STATE;
+    buf[1] = current_duty;
     if(uip_ds6_get_global(ADDR_PREFERRED) == NULL) {
       PRINTF("Aguardando auto-configuracao de IP\n");
       return;
@@ -126,7 +179,7 @@ timeout_handler(void)
     PRINTF("Cliente para [");
     PRINT6ADDR(&client_conn->ripaddr);
     PRINTF("]:%u\n", UIP_HTONS(client_conn->rport));
-    uip_udp_packet_send(client_conn, buf, 1);
+    uip_udp_packet_send(client_conn, buf, 2);
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -166,7 +219,7 @@ set_connection_address(uip_ipaddr_t *ipaddr)
 {
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       2804:14c:8786:8166:6802:493b:ad72:b883 //contiki-udp-server.local
+#define UDP_CONNECTION_ADDR       2804:14c:87c4:2003:3099:9bf5:5aa4:fc16 //contiki-udp-server.local
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
@@ -211,6 +264,8 @@ PROCESS_THREAD(udp_client_process, ev, data)
 
   PROCESS_BEGIN();
   PRINTF("UDP client process started\n");
+
+  loadvalue = pwminit(5000);
 
 #if UIP_CONF_ROUTER
   //set_global_address();

@@ -35,6 +35,9 @@
 #undef NETSTACK_CONF_RDC
 #define NETSTACK_CONF_RDC      sensniff_rdc_driver
 /*---------------------------------------------------------------------------*/
+#undef RF_CORE_CONF_CHANNEL
+#define RF_CORE_CONF_CHANNEL 13
+/*---------------------------------------------------------------------------*/
 /* Include platform-specific header */
 #include "target-conf.h"
 /*---------------------------------------------------------------------------*/

@@ -1,7 +1,7 @@
-all: udp-client-atividade4
+all: projeto-final-board
 
 CFLAGS += -DPROJECT_CONF_H=\"project-conf.h\"
-CONTIKI = ../..
+CONTIKI = ../../..
 CONTIKI_WITH_IPV6 = 1
 CFLAGS += -DUIP_CONF_ND6_SEND_NS=1
 CFLAGS += -g
