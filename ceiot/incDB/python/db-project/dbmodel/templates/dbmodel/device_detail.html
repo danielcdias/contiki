@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    {% load extras %}
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="{% static 'dbmodel/w3c-style.css' %}">
+    <link rel="stylesheet" type="text/css" href="{% static 'dbmodel/style.css' %}">
+    <title>CEIOT - Projeto final disciplina Banco de Dados - Dispositivo: {{device.device_id}}</title>
+</head>
+<body>
+<div class="w3-container w3-margin">
+    <h1>{{device.device_id}}</h1>
+
+    Tipo: {{device.get_device_type_str}}<br/>
+    Modelo: {{device.device_model.name}}<br/>
+    Valor mínimo: {{device.device_model.min_value}}<br/>
+    Valor máximo: {{device.device_model.max_value}}<br/>
+    Precisão: {{device.device_model.precision}}<br/>
+
+    <p>
+        {% if device.is_sensor %}
+        <a href="{% url 'dbmodel:device_update' device.id %}" class="w3-button w3-black w3-round">atualizar</a>
+        {% endif %}
+        {% if device.is_actuator %}
+        <a href="{% url 'dbmodel:device_command' device.id %}" class="w3-button w3-black w3-round">comando</a>
+        {% endif %}
+        <a href="{% url 'dbmodel:board_detail' device.control_board.id %}"
+           class="w3-button w3-black w3-round">voltar</a>
+    </p>
+
+    {% with device.list_device_status as l_device_status %}
+    {% if l_device_status and device.is_sensor %}
+    <h3>Leituras:</h3>
+
+    <table>
+        <tr>
+            <td>Timestamp</td>
+            <td>Valor lido</td>
+            <td>Saúde</td>
+        </tr>
+        {% for device_status in l_device_status %}
+        <tr>
+            <td>{{device_status.timestamp|date:'Y-m-d H:i:s'}}</td>
+            <td class="w3-right-align">{{device_status.value|floatformat:device.device_model.precision}}</td>
+            <td>{{device_status.get_health_state_str}}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p>
+        Média dos valores lidos: {{device.get_value_avg.value__avg|floatformat:2}}
+    </p>
+
+    {% with device.get_health_count as l_health_count %}
+    {% if l_health_count %}
+    <h4>Contagem da saúde nas leituras:</h4>
+
+    <p>
+        {% for hs in l_health_count %}
+        {{ hs.health_state|health_state_filter }}: {{ hs.c }}<br/>
+        {% endfor %}
+    </p>
+    {% endif %}
+    {% endwith %}
+
+    {% endif %}
+
+    {% with device.list_device_command as l_device_command %}
+    {% if l_device_command and device.is_actuator %}
+    <h3>Comandos:</h3>
+
+    <table>
+        <tr>
+            <td>Timestamp</td>
+            <td>Valor enviado</td>
+            <td>Resultado</td>
+        </tr>
+        {% for device_command in l_device_command %}
+        <tr>
+            <td>{{device_command.timestamp|date:'Y-m-d H:i:s'}}</td>
+            <td class="w3-right-align">{{device_command.value|on_off_filter}}</td>
+            <td>{{device_command.get_exec_code_str}}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    {% with device.get_exec_code_count as l_exec_code_count %}
+    {% if l_exec_code_count %}
+    <h4>Contagem dos resultados:</h4>
+
+    <p>
+        {% for ec in l_exec_code_count %}
+        {{ ec.exec_code|exec_code_filter }}: {{ ec.c }}<br/>
+        {% endfor %}
+    </p>
+    {% endif %}
+    {% endwith %}
+
+    {% endif %}
+
+    {% if l_device_status or l_device_command %}
+    <p>
+        {% if device.is_sensor %}
+        <a href="{% url 'dbmodel:device_update' device.id %}" class="w3-button w3-black w3-round">atualizar</a>
+        {% endif %}
+        {% if device.is_actuator %}
+        <a href="{% url 'dbmodel:device_command' device.id %}" class="w3-button w3-black w3-round">comando</a>
+        {% endif %}
+        <a href="{% url 'dbmodel:board_detail' device.control_board.id %}"
+           class="w3-button w3-black w3-round">voltar</a>
+    </p>
+    {% endif %}
+    {% endwith %}
+    {% endwith %}
+
+</div>
+</body>
+</html>

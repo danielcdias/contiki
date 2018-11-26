@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="{% static 'dbmodel/style.css' %}">
+    <link rel="stylesheet" type="text/css" href="{% static 'dbmodel/w3c-style.css' %}">
+    <title>CEIOT - Projeto final disciplina Banco de Dados</title>
+</head>
+<body>
+<div class="w3-container w3-margin">
+    <h1>CEIOT - Banco de dados</h1>
+    <h3>Escolha uma placa:</h3>
+    {% if board_list %}
+    {% for board in board_list %}
+    <h5><a href="{% url 'dbmodel:board_detail' board.id %}">{{board.nickname}} - {{board.mac_address}}</a></h5>
+    {% endfor %}
+    {% else %}
+    <p>Nenhuma placa disponível. Acesso o módulo Admin para incluir placas e dispositivos.</p>
+    {% endif %}
+</div>
+</body>
+</html>
