@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="{% static 'dbmodel/style.css' %}">
+    <link rel="stylesheet" type="text/css" href="{% static 'dbmodel/w3c-style.css' %}">
+    <title>CEIOT - Projeto final disciplina Banco de Dados - Placa: {{board.nickname}}</title>
+</head>
+<body>
+<div class="w3-container w3-margin">
+    <h2>{{board.name}}</h2>
+
+    Modelo: {{board.board_model.name}}<br/>
+    MAC address: {{board.mac_address}}<br/>
+    IPv6 address: {{board.ipv6_address}}<br/>
+    Porta: {{board.port_number}}<br/>
+
+    {% with board.device_set.all as l_devices %}
+    {% if l_devices %}
+    <h3>Dispositivos</h3>
+    <table>
+        <tr>
+            <td>Id</td>
+            <td>Tipo</td>
+            <td>Modelo</td>
+            <td>Valor Min.</td>
+            <td>Valor Max.</td>
+            <td>Precisão</td>
+            <td>Última leitura</td>
+            <td>Saúde</td>
+        </tr>
+        {% for device in l_devices %}
+        <tr>
+            <td><a href="{% url 'dbmodel:device_detail' device.id %}">{{device.device_id}}</a></td>
+            <td>{{device.get_device_type_str}}</td>
+            <td>{{device.device_model.name}}</td>
+            <td>{{device.device_model.min_value}}</td>
+            <td>{{device.device_model.max_value}}</td>
+            <td>{{device.device_model.precision}}</td>
+            {% with device.get_last_status as device_last_status %}
+            {% if device_last_status %}
+            <td class="w3-right-align">{{device_last_status.value|floatformat:device.device_model.precision}}</td>
+            <td>{{device_last_status.get_health_state_str}}</td>
+            {% else %}
+            <td>-</td>
+            <td>-</td>
+            {% endif %}
+            {% endwith %}
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+    {% endwith %}
+    <p>
+        <a href="{% url 'dbmodel:index' %}" class="w3-button w3-black w3-round">voltar</a>
+    </p>
+</div>
+</body>
+</html>

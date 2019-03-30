@@ -1,0 +1,12 @@
+body {
+    font: 15px tahoma;
+    font-color: black;
+}
+
+table {
+    border-collapse: collapse;
+}
+
+table, th, td {
+    border: 1px solid black;
+}
