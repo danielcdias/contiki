@@ -133,3 +133,7 @@ LOG_OPENOCD
 # PyCharm
 .idea
 venv
+
+# CCS project files
+.project
+.cproject
