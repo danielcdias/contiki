@@ -135,5 +135,7 @@ LOG_OPENOCD
 venv
 
 # CCS project files
+.
 .project
 .cproject
+.settings
