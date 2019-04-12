@@ -219,7 +219,7 @@ set_connection_address(uip_ipaddr_t *ipaddr)
 {
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       2804:14c:87c4:2003:3099:9bf5:5aa4:fc16 //contiki-udp-server.local
+#define UDP_CONNECTION_ADDR       2804:7f4:3b80:e539:3099:9bf5:5aa4:fc16 //2804:14c:87c4:2003:3099:9bf5:5aa4:fc16
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
