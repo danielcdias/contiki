@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="{% static 'webapp/w3c-style.css' %}">
+    <title>[CEIOT] - INC14 - Projeto Final</title>
+    <script language="JavaScript">
+        function showVal(id, newValue){
+            document.getElementById('valBox_' + id).innerHTML = newValue;
+        }
+        function disableButton(btnSend) {
+            document.getElementById('btnSubmit').disabled = true;
+        }
+    </script>
+</head>
+<body>
+<div class="w3-container w3-margin">
+    <h2>[CEIOT] - INC14 - Projeto Final</h2>
+    <br/><br/>
+    <p>
+        {% if boards_list %}
+    <p>
+    <form action="{% url 'webapp:set_led' %}" method="post" onsubmit="disableButton()">
+        {% csrf_token %}
+        {% for board in boards_list %}
+        <h4>Placa: {{ board.nickname }} - {{ board.mac_address }}</h4>
+        <div class="slidecontainer">
+            <input id="{{ board.nickname }}" type="range" min="0" max="100" value="{{ board.last_led_level }}"
+                   class="slider" name="led_value_{{ board.nickname }}"
+                   oninput="showVal(this.id, this.value)" onchange="showVal(this.id, his.value)">&nbsp;
+            <span id="valBox_{{ board.nickname }}">{{ board.last_led_level }}</span>% of LED power &nbsp;&nbsp;
+        </div>
+        {% endfor %}
+        <br/>
+        <button id="btnSubmit" class="w3-button w3-black w3-round">Send</button>
+    </form>
+    </p>
+    {% endif %}
+    </p>
+    {% if messages %}
+    <ul class="messages">
+        {% for message in messages %}
+        <li
+        {% if message.tags %} class="messages_{{ message.tags }}"{% endif %}>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+</body>
+</html>

@@ -20,7 +20,7 @@ def server():
 
     while True:
         data, addr = sock_rcv.recvfrom(1024)  # buffer size is 1024 bytes
-        # print("<<<< received message: {} from: [{}]: {}".format(data, addr[0].strip(), addr[1]))
+        print("<<<< received message: {} from: [{}]: {}".format(data, addr[0].strip(), addr[1]))
         mac_part_ip_client = ipv62mac(addr[0])
         query = ControlBoard.objects.filter(mac_address__endswith=mac_part_ip_client)
         if query:
