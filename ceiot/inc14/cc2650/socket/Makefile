@@ -1,4 +1,4 @@
-all: projeto-final-board
+all: projeto-final-socket
 
 CFLAGS += -DPROJECT_CONF_H=\"project-conf.h\"
 CONTIKI = ../../../..

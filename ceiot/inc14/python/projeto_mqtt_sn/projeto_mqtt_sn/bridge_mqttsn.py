@@ -7,13 +7,13 @@ import paho.mqtt.client as mqtt
 
 from webapp.models import ControlBoard
 
-MQTT_SERVER_HOST = "danieldias.mooo.com"
+MQTT_SERVER_HOST = "2804:14c:87c4:2003:e4bc:8506:ab4d:7a45" #danieldias.mooo.com"
 MQTT_SERVER_PORT = 1883
 MQTT_SERVER_TIMEOUT = 60
 CLIENT_ID = "CEIOT-INC14-DCD77"
 
-MQTT_TOPIC_STATUS = "ceiot/inc14/projetofinal/status/#"
-MQTT_TOPIC_COMMAND = "ceiot/inc14/projetofinal/command/"
+MQTT_TOPIC_STATUS = "/projetofinal/sta/#"
+MQTT_TOPIC_COMMAND = "/projetofinal/cmd/"
 
 LOG_OUTPUT_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 LOG_DATETIME_FORMAT = "%Y/%m/%d %H:%M:%S"

@@ -33,68 +33,33 @@
 #include "contiki-lib.h"
 #include "contiki-net.h"
 #include "net/ip/resolv.h"
-#include "sys/ctimer.h"
-#include "sys/etimer.h"
-#include "net/ip/uip.h"
-#include "net/ipv6/uip-ds6.h"
-#include "net/ip/uip-nameserver.h"
-#include "mqtt-sn.h"
-#include "rpl.h"
-#include "net/ip/resolv.h"
-#include "net/rime/rime.h"
-#include "simple-udp.h"
-#include "net/ip/uip-debug.h"
 #include "dev/leds.h"
 #include "ti-lib.h"
 #include "lpm.h"
 
 #include <string.h>
 #include <stdbool.h>
-#include <stdio.h>
-#include <inttypes.h>
 
 #define DEBUG DEBUG_PRINT
-
-#define MDNS 1
-
-#define UDP_PORT 1883
-
-#define REQUEST_RETRIES 4
-#define DEFAULT_SEND_INTERVAL       (10 * CLOCK_SECOND)
-#define REPLY_TIMEOUT (3 * CLOCK_SECOND)
+#include "net/ip/uip-debug.h"
 
 #define SEND_INTERVAL       5 * CLOCK_SECOND
-
 #define MAX_PAYLOAD_LEN     40
+#define CONN_PORT     8802
+#define MDNS 1
+
+#define LED_SET_STATE (0x79)
+#define LED_STATE (0x7C)
 
 static char buf[MAX_PAYLOAD_LEN];
+
+static struct uip_udp_conn *client_conn;
 
 static u_int16_t current_duty = 0;
 static u_int16_t loadvalue, ticks;
 
-static struct mqtt_sn_connection mqtt_sn_c;
-static char mqtt_client_id[17];
-static char ctrl_topic[22] = "0000000000000000/ctrl\0";//of form "0011223344556677/ctrl" it is null terminated, and is 21 charactes
-static char pub_topic[21] = "0000000000000000/msg\0";
-static uint16_t ctrl_topic_id;
-static uint16_t publisher_topic_id;
-static publish_packet_t incoming_packet;
-static uint16_t ctrl_topic_msg_id;
-static uint16_t reg_topic_msg_id;
-static uint16_t mqtt_keep_alive=10;
-static int8_t qos = 1;
-static uint8_t retain = FALSE;
-static char device_id[17];
-static clock_time_t send_interval;
-static mqtt_sn_subscribe_request subreq;
-static mqtt_sn_register_request regreq;
-//uint8_t debug = FALSE;
-
-static enum mqttsn_connection_status connection_state = MQTTSN_DISCONNECTED;
-
-/*A few events for managing device state*/
-static process_event_t mqttsn_connack_event;
-
+#define UIP_UDP_BUF  ((struct uip_udp_hdr *)&uip_buf[UIP_LLH_LEN + UIP_IPH_LEN])
+#define UIP_IP_BUF   ((struct uip_ip_hdr *)&uip_buf[UIP_LLH_LEN])
 
 uint8_t pwm_request_max_pm(void)
 {
@@ -163,9 +128,6 @@ static void set_led(void)
     ti_lib_timer_match_set(GPT0_BASE, TIMER_A, loadvalue - ticks);
 }
 /*---------------------------------------------------------------------------*/
-
-// TODO Terminar
-
 static void tcpip_handler(void)
 {
     char i=0;
@@ -257,7 +219,7 @@ set_connection_address(uip_ipaddr_t *ipaddr)
 {
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       2804:7f4:3b80:e539:3099:9bf5:5aa4:fc16 //2804:14c:87c4:2003:3099:9bf5:5aa4:fc16
+#define UDP_CONNECTION_ADDR       2804:7f4:3b80:d34a:3099:9bf5:5aa4:fc16 //2804:14c:87c4:2003:3099:9bf5:5aa4:fc16
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
