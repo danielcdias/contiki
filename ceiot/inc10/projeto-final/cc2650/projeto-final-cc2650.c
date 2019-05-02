@@ -41,17 +41,17 @@
 #include "net/rime/rime.h"
 #include "simple-udp.h"
 #include "ti-lib.h"
-#include "lpm.h"
 #include "dev/leds.h"
-
-#define DEBUG DEBUG_PRINT
 #include "net/ip/uip-debug.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
 #include <errno.h>
+#include <stdint.h>
+#include <stdbool.h>
 
+#define DEBUG DEBUG_PRINT
 #define MDNS 1
 
 #define UDP_PORT 1883
@@ -62,67 +62,6 @@
 
 #define TOPIC_STA "/projetofinal/sta/%02X%02X"
 #define TOPIC_CMD "/projetofinal/cmd/%02X%02X"
-
-/******************************************************************
-LPM DEFS
-******************************************************************/
-uint8_t pwm_request_max_pm(void)
-{
-    return LPM_MODE_DEEP_SLEEP;
-}
-
-void sleep_enter(void)
-{
-    leds_on(LEDS_RED);
-}
-
-void sleep_leave(void)
-{
-    leds_off(LEDS_RED);
-}
-
-LPM_MODULE(pwmdrive_module, pwm_request_max_pm, sleep_enter, sleep_leave, LPM_DOMAIN_PERIPH);
-
-u_int16_t pwminit(u_int32_t freq)
-{
-    u_int32_t load = 0;
-    ti_lib_ioc_pin_type_gpio_output(IOID_14);
-    ti_lib_ioc_pin_type_gpio_output(IOID_15);
-    leds_off(LEDS_RED);
-
-    /* Enable GPT0 clocks under active, sleep, deep sleep */
-    ti_lib_prcm_peripheral_run_enable(PRCM_PERIPH_TIMER0);
-    ti_lib_prcm_peripheral_sleep_enable(PRCM_PERIPH_TIMER0);
-    ti_lib_prcm_peripheral_deep_sleep_enable(PRCM_PERIPH_TIMER0);
-    ti_lib_prcm_load_set();
-    while(!ti_lib_prcm_load_get());
-
-    /* Register with LPM. This will keep the PERIPH PD powered on
-    * during deep sleep, allowing the pwm to keep working while the chip is
-    * being power-cycled */
-    lpm_register_module(&pwmdrive_module);
-
-    /* Drive the I/O ID with GPT0 / Timer A */
-    ti_lib_ioc_port_configure_set(IOID_14, IOC_PORT_MCU_PORT_EVENT0, IOC_STD_OUTPUT);
-    ti_lib_ioc_port_configure_set(IOID_15, IOC_PORT_MCU_PORT_EVENT0, IOC_STD_OUTPUT);
-
-    /* GPT0 / Timer A: PWM, Interrupt Enable */
-    ti_lib_timer_configure(GPT0_BASE, TIMER_CFG_SPLIT_PAIR | TIMER_CFG_A_PWM | TIMER_CFG_B_PWM);
-
-    /* Stop the timers */
-    ti_lib_timer_disable(GPT0_BASE, TIMER_A);
-    ti_lib_timer_disable(GPT0_BASE, TIMER_B);
-    if(freq > 0) {
-        load = (GET_MCU_CLOCK / freq);
-        ti_lib_timer_load_set(GPT0_BASE, TIMER_A, load);
-        ti_lib_timer_match_set(GPT0_BASE, TIMER_A, load-1);
-        /* Start */
-        ti_lib_timer_enable(GPT0_BASE, TIMER_A);
-    }
-    return load;
-}
-
-/******************************************************************/
 
 static struct mqtt_sn_connection mqtt_sn_c;
 static char mqtt_client_id[17];
@@ -141,9 +80,6 @@ static mqtt_sn_subscribe_request subreq;
 static mqtt_sn_register_request regreq;
 //uint8_t debug = FALSE;
 
-static u_int16_t current_duty = 0;
-static u_int16_t loadvalue, ticks;
-
 static enum mqttsn_connection_status connection_state = MQTTSN_DISCONNECTED;
 
 /*A few events for managing device state*/
@@ -157,19 +93,10 @@ PROCESS_NAME(cetic_6lbr_client_process);
 AUTOSTART_PROCESSES(&mqttsn_process);
 
 /*---------------------------------------------------------------------------*/
-static void set_led(void)
-{
-    ticks = (current_duty == 0 ? 1 : (current_duty * loadvalue) / 100);
-    printf("Current Duty: %i - ticks: %i - loadvalue: %i\n", current_duty, ticks, loadvalue);
-    ti_lib_timer_match_set(GPT0_BASE, TIMER_A, loadvalue - ticks);
-}
-/*---------------------------------------------------------------------------*/
-
-/*---------------------------------------------------------------------------*/
 static void
 puback_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
-  printf("Puback received\n");
+  PRINTF("Puback received\n");
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -177,11 +104,11 @@ connack_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr
 {
   uint8_t connack_return_code;
   connack_return_code = *(data + 3);
-  printf("Connack received\n");
+  PRINTF("Connack received\n");
   if (connack_return_code == ACCEPTED) {
     process_post(&mqttsn_process, mqttsn_connack_event, NULL);
   } else {
-    printf("Connack error: %s\n", mqtt_sn_return_code_string(connack_return_code));
+    PRINTF("Connack error: %s\n", mqtt_sn_return_code_string(connack_return_code));
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -190,12 +117,12 @@ regack_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr,
 {
   regack_packet_t incoming_regack;
   memcpy(&incoming_regack, data, datalen);
-  printf("Regack received\n");
+  PRINTF("Regack received\n");
   if (incoming_regack.message_id == reg_topic_msg_id) {
     if (incoming_regack.return_code == ACCEPTED) {
       publisher_topic_id = uip_htons(incoming_regack.topic_id);
     } else {
-      printf("Regack error: %s\n", mqtt_sn_return_code_string(incoming_regack.return_code));
+      PRINTF("Regack error: %s\n", mqtt_sn_return_code_string(incoming_regack.return_code));
     }
   }
 }
@@ -205,12 +132,12 @@ suback_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr,
 {
   suback_packet_t incoming_suback;
   memcpy(&incoming_suback, data, datalen);
-  printf("Suback received\n");
+  PRINTF("Suback received\n");
   if (incoming_suback.message_id == ctrl_topic_msg_id) {
     if (incoming_suback.return_code == ACCEPTED) {
       ctrl_topic_id = uip_htons(incoming_suback.topic_id);
     } else {
-      printf("Suback error: %s\n", mqtt_sn_return_code_string(incoming_suback.return_code));
+      PRINTF("Suback error: %s\n", mqtt_sn_return_code_string(incoming_suback.return_code));
     }
   }
 }
@@ -221,13 +148,16 @@ publish_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr
   //publish_packet_t* pkt = (publish_packet_t*)data;
   memcpy(&incoming_packet, data, datalen);
   incoming_packet.data[datalen-7] = 0x00;
-  printf("Published message received: %s\n", incoming_packet.data);
+  PRINTF("Published message received: %s\n", incoming_packet.data);
   //see if this message corresponds to ctrl channel subscription request
   if (uip_htons(incoming_packet.topic_id) == ctrl_topic_id) {
-    current_duty = atoi(incoming_packet.data);
-    set_led();
+    // TODO Tratar dados recebidos
+    // Verificar tamanho dos dados (quantidade de dígitos do número recebido)
+    // e utilizar tipo de variavel correta.
+    //current_duty = atoi(incoming_packet.data);
+    // TODO Incluir código para comando recebido
   } else {
-    printf("unknown publication received\n");
+    PRINTF("unknown publication received\n");
   }
 
 }
@@ -235,15 +165,16 @@ publish_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr
 static void
 pingreq_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
-  printf("PingReq received\n");
+  PRINTF("PingReq received\n");
 }
 /*---------------------------------------------------------------------------*/
 static void publish_status()
 {
     static char buf[20];
     static uint8_t buf_len;
-    sprintf(buf, "%" PRIu16, current_duty); //removendo o warning do GCC para o uint32_t
-    printf("publishing at topic: %s -> msg: %s\n", pub_topic, buf);
+    // TODO Alterar função para receber valor e enviar utilizando o tipo correto de dado
+    //sprintf(buf, "%" PRIu16, current_duty); //removendo o warning do GCC para o uint32_t
+    PRINTF("publishing at topic: %s -> msg: %s\n", pub_topic, buf);
     buf_len = strlen(buf);
     mqtt_sn_send_publish(&mqtt_sn_c, publisher_topic_id,
                          MQTT_SN_TOPIC_TYPE_NORMAL, buf, buf_len, qos, retain);
@@ -273,11 +204,9 @@ PROCESS_THREAD(publish_process, ev, data)
 
   PROCESS_BEGIN();
 
-  loadvalue = pwminit(5000);
-
   send_interval = DEFAULT_SEND_INTERVAL;
   sprintf(pub_topic,TOPIC_STA,linkaddr_node_addr.u8[6],linkaddr_node_addr.u8[7]);
-  printf("registering topic\n");
+  PRINTF("registering topic\n");
   registration_tries =0;
   while (registration_tries < REQUEST_RETRIES)
   {
@@ -288,12 +217,12 @@ PROCESS_THREAD(publish_process, ev, data)
     PROCESS_WAIT_EVENT();
     if (mqtt_sn_request_success(rreq)) {
       registration_tries = 4;
-      printf("registration acked\n");
+      PRINTF("registration acked\n");
     }
     else {
       registration_tries++;
       if (rreq->state == MQTTSN_REQUEST_FAILED) {
-          printf("Regack error: %s\n", mqtt_sn_return_code_string(rreq->return_code));
+          PRINTF("Regack error: %s\n", mqtt_sn_return_code_string(rreq->return_code));
       }
     }
   }
@@ -311,7 +240,7 @@ PROCESS_THREAD(publish_process, ev, data)
       etimer_set(&send_timer, send_interval);
     }
   } else {
-    printf("unable to register topic\n");
+    PRINTF("unable to register topic\n");
   }
   PROCESS_END();
 }
@@ -326,10 +255,10 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data)
   PROCESS_BEGIN();
   subscription_tries = 0;
   sprintf(ctrl_topic,TOPIC_CMD,linkaddr_node_addr.u8[6],linkaddr_node_addr.u8[7]);
-  printf("requesting subscription\n");
+  PRINTF("requesting subscription\n");
   while(subscription_tries < REQUEST_RETRIES)
   {
-      printf("subscribing... topic: %s\n", ctrl_topic);
+      PRINTF("subscribing... topic: %s\n", ctrl_topic);
       ctrl_topic_msg_id = mqtt_sn_subscribe_try(sreq,&mqtt_sn_c,ctrl_topic,0,REPLY_TIMEOUT);
 
       //PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(sreq));
@@ -337,12 +266,12 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data)
       PROCESS_WAIT_EVENT();
       if (mqtt_sn_request_success(sreq)) {
           subscription_tries = 4;
-          printf("subscription acked\n");
+          PRINTF("subscription acked\n");
       }
       else {
           subscription_tries++;
           if (sreq->state == MQTTSN_REQUEST_FAILED) {
-              printf("Suback error: %s\n", mqtt_sn_return_code_string(sreq->return_code));
+              PRINTF("Suback error: %s\n", mqtt_sn_return_code_string(sreq->return_code));
           }
       }
   }
@@ -499,7 +428,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
 
 
   /*Request a connection and wait for connack*/
-  printf("requesting connection \n ");
+  PRINTF("requesting connection \n ");
   connection_timeout_event = process_alloc_event();
   //testegoto:
   connection_retries = 0;
@@ -511,7 +440,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     PROCESS_WAIT_EVENT();
     if (ev == mqttsn_connack_event) {
       //if success
-      printf("connection acked\n");
+      PRINTF("connection acked\n");
       ctimer_stop(&connection_timer);
       connection_state = MQTTSN_CONNECTED;
       connection_retries = 15;//using break here may mess up switch statement of proces
@@ -519,7 +448,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     if (ev == connection_timeout_event) {
       connection_state = MQTTSN_CONNECTION_FAILED;
       connection_retries++;
-      printf("connection timeout\n");
+      PRINTF("connection timeout\n");
       ctimer_restart(&connection_timer);
       if (connection_retries < 15) {
         mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
@@ -545,7 +474,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
       }
     }
   } else {
-    printf("unable to connect\n");
+    PRINTF("unable to connect\n");
   }
   PROCESS_END();
 }

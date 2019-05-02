@@ -7,7 +7,7 @@ import paho.mqtt.client as mqtt
 
 from webapp.models import ControlBoard
 
-MQTT_SERVER_HOST = "2804:14c:87c4:2003:e4bc:8506:ab4d:7a45" #danieldias.mooo.com"
+MQTT_SERVER_HOST = "danieldias.mooo.com"
 MQTT_SERVER_PORT = 1883
 MQTT_SERVER_TIMEOUT = 60
 CLIENT_ID = "CEIOT-INC14-DCD77"

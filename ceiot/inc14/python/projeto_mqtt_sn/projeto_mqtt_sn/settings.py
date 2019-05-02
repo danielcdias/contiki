@@ -76,8 +76,12 @@ WSGI_APPLICATION = 'projeto_mqtt_sn.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        'ENGINE': 'django.db.backends.postgresql_psycopg2',
+        'NAME': 'hetuysid',
+        'USER': 'hetuysid',
+        'PASSWORD': '0a8IZcL8C4KPJDdRyitihDFMORZe0eHV',
+        'HOST': 'isilo.db.elephantsql.com',
+        'PORT': '5432',  # 8000 is default
     }
 }
 
