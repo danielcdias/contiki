@@ -1,9 +1,9 @@
 DEFINES += PROJECT_CONF_H=\"project-conf.h\"
 CFLAGS += -g
-CONTIKI_PROJECT = trfinal
+CONTIKI_PROJECT = test-sensors
 all: $(CONTIKI_PROJECT)
 
 PROJECT_SOURCEFILES += util.c
 
-CONTIKI = ../..
+CONTIKI = ../../../..
 include $(CONTIKI)/Makefile.include
