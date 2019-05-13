@@ -40,9 +40,9 @@ MOISTURE_SENSOR        soil Moisture Sensor
 #define RAIN_SENSOR_SURFACE_3 IOID_27
 #define RAIN_SENSOR_SURFACE_4 IOID_28
 
-#define RAIN_SENSOR_DRAIN IOID_30
+#define RAIN_SENSOR_DRAIN IOID_29
 
-#define PLUVIOMETER_SENSOR IOID_17
+#define PLUVIOMETER_SENSOR IOID_30
 
 #define MOISTURE_SENSOR ADC_COMPB_IN_AUXIO7 // DIO 23
 
@@ -51,42 +51,9 @@ MOISTURE_SENSOR        soil Moisture Sensor
 #define MOISTURE_SENSOR_READ_INTERVAL 30 // seconds
 
 
-/**************************************************************************
- * Definitions for pluviometer sensor works with interruption (as a button)
- **************************************************************************/
-
-#define INTERRUPTION_SENSOR "Interruption_Event_Sensor"
-
-#define INTERRUPTION_SENSOR_VALUE_STATE    0
-#define INTERRUPTION_SENSOR_VALUE_DURATION 1
-
-#define INTERRUPTION_SENSOR_VALUE_RELEASED 0
-#define INTERRUPTION_SENSOR_VALUE_PRESSED  1
-
-#define INTERRUPTION_GPIO_CFG         (IOC_CURRENT_2MA  | IOC_STRENGTH_AUTO | \
-                                 IOC_IOPULL_UP    | IOC_SLEW_DISABLE  | \
-                                 IOC_HYST_DISABLE | IOC_BOTH_EDGES    | \
-                                 IOC_INT_ENABLE   | IOC_IOMODE_NORMAL | \
-                                 IOC_NO_WAKE_UP   | IOC_INPUT_ENABLE)
-
-#define INTERRUPTION_DEBOUNCE_DURATION (CLOCK_SECOND >> 5)
-
-/*********************
- * Structs definitions
- *********************/
-
-extern const struct sensors_sensor interruption_sensor;
-
-struct interruption_timer {
-  struct timer debounce;
-  clock_time_t start;
-  clock_time_t duration;
-};
-
 /***********************
  * Functions definitions
  ***********************/
-
 void configureGPIOSensors();
 
 int readADSMoistureSensor();

@@ -12,14 +12,16 @@
 #include "contiki.h"
 #include "sys/etimer.h"
 #include "lib/sensors.h"
+#include "button-sensor.h"
 
 #include "util.h"
+#include "pluv-sensor.h"
 
 /******************
  * Global variables
  ******************/
 
-static struct etimer et_general1, et_general2, et_general3;
+static struct etimer et_rainSensors, et_pluviometer, et_moistureSensor;
 
 /**********************
  * Processes definition
@@ -32,6 +34,7 @@ AUTOSTART_PROCESSES(&testRainSensors, &testPluviometerSensor, &testMoistureSenso
 //AUTOSTART_PROCESSES(&testRainSensors);
 //AUTOSTART_PROCESSES(&testPluviometerSensor);
 //AUTOSTART_PROCESSES(&testMoistureSensor);
+//AUTOSTART_PROCESSES(&testRainSensors,&testPluviometerSensor);
 
 /**************************
  * Processes implementation
@@ -40,8 +43,8 @@ AUTOSTART_PROCESSES(&testRainSensors, &testPluviometerSensor, &testMoistureSenso
 PROCESS_THREAD(testRainSensors, ev, data) {
     PROCESS_BEGIN();
 
-    etimer_set(&et_general1, 4 * CLOCK_SECOND);
-    PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+    etimer_set(&et_rainSensors, 4 * CLOCK_SECOND);
+    PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et_rainSensors);
 
     printf("#1# ---------- Starting Rain Sensors test...\n");
 
@@ -75,8 +78,8 @@ PROCESS_THREAD(testRainSensors, ev, data) {
             printf("#1# Rain sensor drain - Value changed = %d\n", valueRead);
             lastValueRead5 = valueRead;
         }
-        etimer_set(&et_general1, RAIN_SENSORS_READ_INTERVAL * CLOCK_SECOND);
-        PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+        etimer_set(&et_rainSensors, RAIN_SENSORS_READ_INTERVAL * CLOCK_SECOND);
+        PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et_rainSensors);
     }
 
     PROCESS_END();
@@ -85,37 +88,38 @@ PROCESS_THREAD(testRainSensors, ev, data) {
 PROCESS_THREAD(testPluviometerSensor, ev, data) {
     PROCESS_BEGIN();
 
-    etimer_set(&et_general2, 4 * CLOCK_SECOND);
-    PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+    etimer_set(&et_pluviometer, 4 * CLOCK_SECOND);
+    PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et_pluviometer);
 
-    printf("#2# ---------- Starting Pluviometer Sensor test...\n");
+    printf("#2# ---------- Starting pluviometer sensor test...\n");
+    SENSORS_ACTIVATE(pluviometer_sensor);
 
     while(1) {
         PROCESS_YIELD();
 
         if(ev == sensors_event) {
-            if(data == &interruption_sensor) {
+            if(data == &pluviometer_sensor) {
                 printf("#2# Pluviometer Sensor event received!\n");
             }
         }
     }
 
+    SENSORS_DEACTIVATE(pluviometer_sensor);
     PROCESS_END();
 }
 
 PROCESS_THREAD(testMoistureSensor, ev, data) {
     PROCESS_BEGIN();
 
-    etimer_set(&et_general3, 4 * CLOCK_SECOND);
-    PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+    etimer_set(&et_moistureSensor, 4 * CLOCK_SECOND);
+    PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et_moistureSensor);
 
     printf("#3# ---------- Starting Moisture Sensors (ADC) test...\n");
 
     while (1) {
         printf("#3# Moisture sensor - value read: %i\n", readADSMoistureSensor());
-        etimer_set(&et_general2, MOISTURE_SENSOR_READ_INTERVAL * CLOCK_SECOND);
-        PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
-
+        etimer_set(&et_moistureSensor, MOISTURE_SENSOR_READ_INTERVAL * CLOCK_SECOND);
+        PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et_moistureSensor);
     }
 
     PROCESS_END();
