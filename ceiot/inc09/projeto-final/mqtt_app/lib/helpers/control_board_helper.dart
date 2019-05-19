@@ -4,6 +4,7 @@ final String nicknameColumn = "nicknameColumn";
 final String boardModelColumn = "boardModelColumn";
 final String macAddressColumn = "macAddressColumn";
 final String lastLedLevelColumn = "lastLedLevelColumn";
+final String activeColumn = "activeColumn";
 
 class ControlBoardHelper {
   static final ControlBoardHelper _instance = ControlBoardHelper.internal();
@@ -15,16 +16,20 @@ class ControlBoardHelper {
   Future<List> getAllBoards() async {
     List<ControlBoard> list = List();
     list.add(ControlBoard.fromMap({
+      idColumn: 1,
       nicknameColumn: "DCD02",
       boardModelColumn: "TI LAUNCHXL CC2650",
       macAddressColumn: "00:12:4B:82:89:04",
       lastLedLevelColumn: 0,
+      activeColumn: false,
     }));
     list.add(ControlBoard.fromMap({
-      nicknameColumn: "DCD03",
+      idColumn: 2,
+      nicknameColumn: "DCD06",
       boardModelColumn: "TI LAUNCHXL CC2650",
-      macAddressColumn: "00:12:4B:82:AA:02",
+      macAddressColumn: "00:12:4B:82:AE:97",
       lastLedLevelColumn: 0,
+      activeColumn: false,
     }));
     return list;
   }
@@ -36,6 +41,7 @@ class ControlBoard {
   String boardModel;
   String macAddress;
   int lastLedLevel;
+  bool active;
 
   ControlBoard.fromMap(Map map) {
     id = map[idColumn];
@@ -43,6 +49,7 @@ class ControlBoard {
     boardModel = map[boardModelColumn];
     macAddress = map[macAddressColumn];
     lastLedLevel = map[lastLedLevelColumn];
+    active = map[activeColumn];
   }
 
   Map toMap() {
@@ -51,6 +58,7 @@ class ControlBoard {
       boardModelColumn: boardModel,
       macAddressColumn: macAddress,
       lastLedLevelColumn: lastLedLevel,
+      activeColumn: active,
     };
     if (id != null) {
       map[idColumn] = id;
@@ -65,6 +73,7 @@ class ControlBoard {
         "nickname: $nickname, "
         "boardModel: $boardModel, "
         "macAddress: $macAddress, "
-        "lastLedLevel: $lastLedLevel";
+        "lastLedLevel: $lastLedLevel,"
+        "active: $active)";
   }
 }

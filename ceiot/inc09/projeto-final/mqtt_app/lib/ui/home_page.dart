@@ -7,7 +7,7 @@ const MQTT_SERVER_PORT = 1883;
 const MQTT_SERVER_TIMEOUT = 60;
 const CLIENT_ID = "CEIOT-INC14-DCD77";
 
-const MQTT_TOPIC_STATUS = "/projetofinal/sta/#";
+const MQTT_TOPIC_STATUS = "/projetofinal/sta/";
 const MQTT_TOPIC_COMMAND = "/projetofinal/cmd/";
 
 class HomePage extends StatefulWidget {
@@ -18,21 +18,42 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   ControlBoardHelper _helper = ControlBoardHelper();
   List<ControlBoard> _boards = List();
-  MqttClient mqtt_client;
+  MqttClient _mqtt_client;
 
   void _startMqttClient() async {
-    mqtt_client = new MqttClient.withPort(MQTT_SERVER_HOST, CLIENT_ID, MQTT_SERVER_PORT);
-    mqtt_client.logging(on: false);
-    mqtt_client.keepAlivePeriod = MQTT_SERVER_TIMEOUT;
-    mqtt_client.onDisconnected = _onDisconnected;
-    mqtt_client.onSubscribed = _onSubscribed;
-    mqtt_client.onConnected = _onConnected;
+    _mqtt_client = new MqttClient.withPort(MQTT_SERVER_HOST, CLIENT_ID, MQTT_SERVER_PORT);
+    _mqtt_client.logging(on: false);
+    _mqtt_client.keepAlivePeriod = MQTT_SERVER_TIMEOUT;
+    _mqtt_client.onDisconnected = _onDisconnected;
+    _mqtt_client.onSubscribed = _onSubscribed;
+    _mqtt_client.onConnected = _onConnected;
     try {
-      await mqtt_client.connect();
+      await _mqtt_client.connect();
     } catch (e) {
       print("######### EXAMPLE::client exception - $e");
-      mqtt_client.disconnect();
+      _mqtt_client.disconnect();
     }
+    for (ControlBoard m in _boards) {
+      _mqtt_client.subscribe(
+          MQTT_TOPIC_STATUS + m.macAddress.substring(12, 14) + m.macAddress.substring(15, 17), MqttQos.atLeastOnce);
+    }
+    _mqtt_client.published.listen((MqttPublishMessage message) {
+      for (ControlBoard m in _boards) {
+        if (message.variableHeader.topicName
+            .endsWith(m.macAddress.substring(12, 14) + m.macAddress.substring(15, 17))) {
+          setState(() {
+            m.active = true;
+            int newValue = int.parse(MqttPublishPayload.bytesToStringAsString(message.payload.message));
+            if (newValue != m.lastLedLevel) {
+              m.lastLedLevel = int.parse(MqttPublishPayload.bytesToStringAsString(message.payload.message));
+            }
+          });
+        }
+      }
+      print('EXAMPLE::Published notification:: topic is ${message.variableHeader.topicName}, '
+          'with Qos ${message.header.qos}. '
+          'Message: ${MqttPublishPayload.bytesToStringAsString(message.payload.message)}');
+    });
   }
 
   void _onConnected() {
@@ -47,6 +68,9 @@ class _HomePageState extends State<HomePage> {
   /// The unsolicited disconnect callback
   void _onDisconnected() {
     print("######### EXAMPLE::OnDisconnected client callback - Client disconnection");
+    for (ControlBoard m in _boards) {
+      m.active = false;
+    }
   }
 
   @override
@@ -55,6 +79,12 @@ class _HomePageState extends State<HomePage> {
     print("######### initState");
     _getAllBoards();
     _startMqttClient();
+  }
+
+  @override
+  void dispose() {
+    _mqtt_client.disconnect();
+    super.dispose();
   }
 
   @override
@@ -110,12 +140,22 @@ class _HomePageState extends State<HomePage> {
                       max: 100,
                       divisions: 10,
                       value: _boards[index].lastLedLevel.toDouble(),
-                      onChanged: (newValue) {
-                        setState(() => _boards[index].lastLedLevel = newValue.toInt());
-                      },
-                      onChangeEnd: (newValue) {
-                        print("${_boards[index].nickname} - value: ${_boards[index].lastLedLevel}");
-                      },
+                      onChanged: _boards[index].active
+                          ? (newValue) {
+                              setState(() => _boards[index].lastLedLevel = newValue.toInt());
+                            }
+                          : null,
+                      onChangeEnd: _boards[index].active
+                          ? (newValue) {
+                              setState(() => _boards[index].active= false);
+                              String pubTopic = MQTT_TOPIC_COMMAND +
+                                  _boards[index].macAddress.substring(12, 14) +
+                                  _boards[index].macAddress.substring(15, 17);
+                              final MqttClientPayloadBuilder builder = MqttClientPayloadBuilder();
+                              builder.addString(newValue.toString());
+                              _mqtt_client.publishMessage(pubTopic, MqttQos.atLeastOnce, builder.payload);
+                            }
+                          : null,
                     ),
                   ),
                   Container(

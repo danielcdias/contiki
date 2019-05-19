@@ -86,6 +86,10 @@ class ErrorReport(models.Model):
     error_type = models.IntegerField(verbose_name='Error type', choices=ErrorTypes)
     details = models.TextField(verbose_name="Details")
 
+    @property
+    def error_type_description(self):
+        return "{}".format(self.ErrorTypes[self.error_type][1])
+
     def __str__(self):
-        return "Error! Type: {}, Timestamp: {}, Details: {}".format(self.ErrorTypes[self.error_type][1], self.timestamp,
+        return "Error! Type: {}, Timestamp: {}, Details: {}".format(self.error_type_description, self.timestamp,
                                                                     self.details)
