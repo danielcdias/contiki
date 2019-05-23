@@ -1,75 +1,73 @@
-from rest_framework.authentication import TokenAuthentication
-from rest_framework.decorators import action
 from rest_framework.filters import SearchFilter
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
-from rest_framework.response import Response
-from rest_framework.viewsets import ModelViewSet
+from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from config.expiring_token import ExpiringTokenAuthentication
 from model.api.serializers import BoardVendorSerializer, BoardModelSerializer, ControlBoardSerializer, \
     SensorTypeSerializer, SensorSerializer, SensorReadEventSerializer, NotificationUserSerializer, ErrorReportSerializer
 from model.models import BoardVendor, BoardModel, ControlBoard, SensorType, Sensor, SensorReadEvent, NotificationUser, \
     ErrorReport
 
 
-class BoardVendorViewSet(ModelViewSet):
+class BoardVendorViewSet(ReadOnlyModelViewSet):
     queryset = BoardVendor.objects.all()
     serializer_class = BoardVendorSerializer
     filter_backends = (SearchFilter,)
-    permission_classes = (IsAuthenticated,)
-    authentication_classes = (TokenAuthentication,)
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    authentication_classes = (ExpiringTokenAuthentication,)
 
 
-class BoardModelViewSet(ModelViewSet):
+class BoardModelViewSet(ReadOnlyModelViewSet):
     queryset = BoardModel.objects.all()
     serializer_class = BoardModelSerializer
     filter_backends = (SearchFilter,)
-    permission_classes = (IsAuthenticated,)
-    authentication_classes = (TokenAuthentication,)
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    authentication_classes = (ExpiringTokenAuthentication,)
 
 
-class ControlBoardViewSet(ModelViewSet):
+class ControlBoardViewSet(ReadOnlyModelViewSet):
     queryset = ControlBoard.objects.all()
     serializer_class = ControlBoardSerializer
     filter_backends = (SearchFilter,)
-    permission_classes = (IsAuthenticated,)
-    authentication_classes = (TokenAuthentication,)
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    authentication_classes = (ExpiringTokenAuthentication,)
 
 
-class SensorTypeViewSet(ModelViewSet):
+class SensorTypeViewSet(ReadOnlyModelViewSet):
     queryset = SensorType.objects.all()
     serializer_class = SensorTypeSerializer
     filter_backends = (SearchFilter,)
-    permission_classes = (IsAuthenticated,)
-    authentication_classes = (TokenAuthentication,)
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    authentication_classes = (ExpiringTokenAuthentication,)
 
 
-class SensorViewSet(ModelViewSet):
+class SensorViewSet(ReadOnlyModelViewSet):
     queryset = Sensor.objects.all()
     serializer_class = SensorSerializer
     filter_backends = (SearchFilter,)
-    permission_classes = (IsAuthenticated,)
-    authentication_classes = (TokenAuthentication,)
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    authentication_classes = (ExpiringTokenAuthentication,)
 
 
-class SensorReadEventViewSet(ModelViewSet):
+class SensorReadEventViewSet(ReadOnlyModelViewSet):
     queryset = SensorReadEvent.objects.all()
     serializer_class = SensorReadEventSerializer
     filter_backends = (SearchFilter,)
     permission_classes = (IsAuthenticatedOrReadOnly,)
-    authentication_classes = (TokenAuthentication,)
+    authentication_classes = (ExpiringTokenAuthentication,)
 
 
-class NotificationUserViewSet(ModelViewSet):
+class NotificationUserViewSet(ReadOnlyModelViewSet):
     queryset = NotificationUser.objects.all()
     serializer_class = NotificationUserSerializer
     filter_backends = (SearchFilter,)
     permission_classes = (IsAuthenticated,)
-    authentication_classes = (TokenAuthentication,)
+    authentication_classes = (ExpiringTokenAuthentication,)
 
 
-class ErrorReportViewSet(ModelViewSet):
+class ErrorReportViewSet(ReadOnlyModelViewSet):
     queryset = ErrorReport.objects.all()
     serializer_class = ErrorReportSerializer
     filter_backends = (SearchFilter,)
     permission_classes = (IsAuthenticated,)
-    authentication_classes = (TokenAuthentication,)
+    authentication_classes = (ExpiringTokenAuthentication,)

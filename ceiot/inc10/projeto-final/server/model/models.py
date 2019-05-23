@@ -55,7 +55,7 @@ class Sensor(models.Model):
     control_board = models.ForeignKey(ControlBoard, on_delete=models.CASCADE, verbose_name="Control board")
 
     def __str__(self):
-        return self.sensor_id
+        return "{} - {}".format(self.control_board.nickname, self.sensor_id)
 
 
 class SensorReadEvent(models.Model):

@@ -1,13 +1,12 @@
-from django.contrib import admin
 from django.conf.urls import include
+from django.contrib import admin
 from django.urls import path
-from django.conf.urls.static import static
-from django.conf import settings
 from rest_framework import routers
-from rest_framework.authtoken.views import obtain_auth_token
 
+from config.expiring_token import obtain_expiring_auth_token
 from model.api.viewsets import BoardVendorViewSet, BoardModelViewSet, ControlBoardViewSet, SensorTypeViewSet, \
     SensorViewSet, SensorReadEventViewSet, NotificationUserViewSet, ErrorReportViewSet
+from model.bridge import mqtt_bridge
 
 router = routers.DefaultRouter()
 router.register(r'boardvendors', BoardVendorViewSet, basename="BoardVendor")
@@ -22,5 +21,7 @@ router.register(r'errorreports', ErrorReportViewSet, basename="ErrorReport")
 urlpatterns = [
     path('', include(router.urls)),
     path('admin/', admin.site.urls),
-    path('api-token-auth/', obtain_auth_token),
+    path('api-token-auth/', obtain_expiring_auth_token),
 ]
+
+mqtt_bridge.run()

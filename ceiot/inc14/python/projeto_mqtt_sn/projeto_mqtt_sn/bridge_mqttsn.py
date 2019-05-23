@@ -72,7 +72,7 @@ class MQTTBridge:
             # self.mqttc_cli.subscribe("$SIS/#", 0)
             self.mqttc_cli.subscribe(MQTT_TOPIC_STATUS, 0)
             self.is_running = True
-            self.mqttc_cli.loop_forever()
+            self.mqttc_cli.loop_start()
         except ConnectionRefusedError as ex:
             self.log_error("Cannot connect to MQTT broker! Exception: {}".format(ex))
 
