@@ -1,3 +1,12 @@
+/**
+ * File:   pluv-sensor.c
+ * Author: Daniel Carvalho Dias (daniel.dias@gmail.com)
+ * Date:   11/05/2019
+ *
+ * Configures pluviometer sensor to work with interruptions (as a button).
+ *
+ */
+
 #include <stdio.h>
 #include <stdint.h>
 

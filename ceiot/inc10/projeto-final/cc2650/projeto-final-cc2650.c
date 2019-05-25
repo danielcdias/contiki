@@ -1,30 +1,15 @@
-/*
-  Basic MQTT-SN client library
-  Copyright (C) 2013 Nicholas Humfrey
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-  Modifications:
-  Copyright (C) 2013 Adam Renner
-*/
-
+/**
+ * File:  projeto-final-cc2650.c
+ * Author: Daniel Carvalho Dias (daniel.dias@gmail.com)
+ * Date:   25/05/2019
+ *
+ * Main C file for the Terraço Verde CWB project.
+ * Implements a set of sensor readings to collect data regarding
+ * the influence of green terraces in rain absortion.
+ * Each CC2650 board will control a set of 5 rain sensors, 1 capacitive
+ * soil moisture sensor and 1 pluviometer sensor.
+ *
+ */
 
 #include "contiki.h"
 #include "contiki-lib.h"
@@ -42,6 +27,9 @@
 #include "simple-udp.h"
 #include "ti-lib.h"
 #include "dev/leds.h"
+
+#define DEBUG 1
+
 #include "net/ip/uip-debug.h"
 
 #include <stdio.h>
@@ -51,7 +39,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define DEBUG DEBUG_PRINT
 #define MDNS 1
 
 #define UDP_PORT 1883
@@ -59,21 +46,22 @@
 #define REQUEST_RETRIES 4
 #define DEFAULT_SEND_INTERVAL       (10 * CLOCK_SECOND)
 #define REPLY_TIMEOUT (3 * CLOCK_SECOND)
+#define INACTIVITY_TIMEOUT (300 * CLOCK_SECOND)
 
-#define TOPIC_STA "/projetofinal/sta/%02X%02X"
-#define TOPIC_CMD "/projetofinal/cmd/%02X%02X"
+#define TOPIC_STA "/tvcwb1299/mmm/sta/%02X%02X"
+#define TOPIC_CMD "/tvcwb1299/mmm/cmd/%02X%02X"
 
 static struct mqtt_sn_connection mqtt_sn_c;
 static char mqtt_client_id[17];
-static char ctrl_topic[23] = "\0";
-static char pub_topic[23] = "\0";
+static char ctrl_topic[27] = "\0";
+static char pub_topic[27] = "\0";
 static uint16_t ctrl_topic_id;
 static uint16_t publisher_topic_id;
 static publish_packet_t incoming_packet;
 static uint16_t ctrl_topic_msg_id;
 static uint16_t reg_topic_msg_id;
 static uint16_t mqtt_keep_alive=10;
-static int8_t qos = 1;
+static int8_t qos = 2;
 static uint8_t retain = FALSE;
 static clock_time_t send_interval;
 static mqtt_sn_subscribe_request subreq;
@@ -83,11 +71,12 @@ static mqtt_sn_register_request regreq;
 static enum mqttsn_connection_status connection_state = MQTTSN_DISCONNECTED;
 
 /*A few events for managing device state*/
-static process_event_t mqttsn_connack_event;
+static process_event_t mqttsn_connack_event, network_inactivity_timeout_reset;
 
 PROCESS(mqttsn_process, "Configure Connection and Topic Registration");
 PROCESS(publish_process, "register topic and publish data");
 PROCESS(ctrl_subscription_process, "subscribe to a device control channel");
+PROCESS(inactivity_watchdog_process, "monitor network inactivity");
 PROCESS_NAME(cetic_6lbr_client_process);
 
 AUTOSTART_PROCESSES(&mqttsn_process);
@@ -178,6 +167,7 @@ static void publish_status()
     buf_len = strlen(buf);
     mqtt_sn_send_publish(&mqtt_sn_c, publisher_topic_id,
                          MQTT_SN_TOPIC_TYPE_NORMAL, buf, buf_len, qos, retain);
+    process_post(&inactivity_watchdog_process, network_inactivity_timeout_reset, NULL);
 }
 
 
@@ -350,7 +340,31 @@ set_connection_address(uip_ipaddr_t *ipaddr)
   return status;
 }
 
+void reset_board() {
+  PRINTF("Watchdog detected network inactivity. REBOOTING board...\n");
+  while (true);
+}
 
+PROCESS_THREAD(inactivity_watchdog_process, ev, data)
+{
+  static struct etimer inactivity_timer;
+  PROCESS_BEGIN();
+  network_inactivity_timeout_reset = process_alloc_event();
+  etimer_set(&inactivity_timer, INACTIVITY_TIMEOUT);
+  while (true)
+  {
+    PROCESS_WAIT_EVENT();
+    if (ev == PROCESS_EVENT_TIMER) {
+        if (etimer_expired(&inactivity_timer)) {
+          reset_board();
+        }
+    }
+    if (ev == network_inactivity_timeout_reset) {
+      etimer_restart(&inactivity_timer);
+    }
+  }
+  PROCESS_END();
+}
 
 PROCESS_THREAD(mqttsn_process, ev, data)
 {
@@ -388,15 +402,12 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     PROCESS_WAIT_EVENT();
     if(etimer_expired(&periodic_timer))
     {
-        PRINTF("Aguardando auto-configuracao de IP\n");
+        PRINTF("Waiting for IP auto configutation...\n");
         etimer_set(&periodic_timer, 2*CLOCK_SECOND);
     }
   }
 
   print_local_addresses();
-
-
-
 
   rpl_dag_t *dag = rpl_get_any_dag();
   if(dag) {
@@ -464,6 +475,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     while(!etimer_expired(&periodic_timer))
         PROCESS_WAIT_EVENT();
     process_start(&publish_process, 0);
+    process_start(&inactivity_watchdog_process, NULL);
     etimer_set(&et, 2*CLOCK_SECOND);
     while(1)
     {
@@ -475,6 +487,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     }
   } else {
     PRINTF("unable to connect\n");
+    reset_board();
   }
   PROCESS_END();
 }

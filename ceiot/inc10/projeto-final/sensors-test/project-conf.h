@@ -1,3 +1,12 @@
+/**
+ * File:   project-conf.h
+ * Author: Daniel Carvalho Dias (daniel.dias@gmail.com)
+ * Date:   11/05/2019
+ *
+ * Project specific configuration.
+ *
+ */
+
 #ifndef PROJECT_CONF
 
 #define PROJECT_CONF

@@ -234,7 +234,9 @@ main(void)
 
   autostart_start(autostart_processes);
 
-  //watchdog_start();
+  // TODO Retirar para resetar quando travar HW ou SW
+  // Para forçar reset, usar while (1);
+  watchdog_start();
 
   fade(LEDS_ORANGE);
 

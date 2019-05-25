@@ -11,4 +11,5 @@ CFLAGS += -g
 DEBUG = 1
 APPS += powertrace
 PROJECT_SOURCEFILES += mqtt-sn.c cetic-6lbr-client.c
+PROJECT_SOURCEFILES += ../../../../../core/net/llsec/noncoresec/noncoresec.c
 include $(CONTIKI)/Makefile.include

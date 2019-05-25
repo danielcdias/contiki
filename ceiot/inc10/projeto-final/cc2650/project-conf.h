@@ -41,4 +41,21 @@
 #undef RF_CORE_CONF_CHANNEL
 #define RF_CORE_CONF_CHANNEL 13
 
+#undef LLSEC802154_CONF_ENABLED
+#define LLSEC802154_CONF_ENABLED (1)
+
+#undef NETSTACK_CONF_LLSEC
+#define NETSTACK_CONF_LLSEC noncoresec_driver
+
+#define NONCORESEC_CONF_SEC_LVL (7)
+
+#undef NETSTACK_CONF_FRAMER
+#define NETSTACK_CONF_FRAMER noncoresec_framer
+
+#undef NONCORESEC_CONF_KEY
+#define NONCORESEC_CONF_KEY { 0x9D , 0x1B , 0xFF , 0x00 , \
+                            0xFE , 0xF0 , 0xF8 , 0xA5 , \
+                            0x06 , 0xB1 , 0x9E , 0xF4 , \
+                            0xA0 , 0xB0 , 0xBD , 0x4C }
+
 #endif /* __PROJECT_CONF_H__ */
