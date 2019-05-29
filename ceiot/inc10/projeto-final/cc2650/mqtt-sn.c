@@ -31,6 +31,9 @@
 #include "simple-udp.h"
 #include "net/ip/uip.h"
 #include "list.h"
+
+#define DEBUG 0
+
 #include "net/ip/uip-debug.h"
 
 #include <string.h>
@@ -45,8 +48,6 @@
 
 #include "mqtt-sn.h"
 
-#include <stdint.h>
-#include <stdbool.h>
 
 #ifndef AI_DEFAULT
 #define AI_DEFAULT (AI_ADDRCONFIG|AI_V4MAPPED)
@@ -92,6 +93,7 @@ mqtt_sn_receiver(struct simple_udp_connection *sock, const uip_ipaddr_t *sender_
   if (datalen >= 2)
   {
     msg_type = data[1];
+    PRINTF("MSG_TYPE = %X\n", msg_type);
     switch(msg_type) {
 //        case MQTT_SN_TYPE_ADVERTISE:
 //        case MQTT_SN_TYPE_SEARCHGW:

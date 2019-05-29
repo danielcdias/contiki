@@ -11,10 +11,15 @@
  *
  */
 
+/******************************************************************************
+ * Constants and includes
+ ******************************************************************************/
+
 #include "contiki.h"
 #include "contiki-lib.h"
 #include "contiki-net.h"
 #include "lib/random.h"
+#include "sys/timer.h"
 #include "sys/ctimer.h"
 #include "sys/etimer.h"
 #include "net/ip/uip.h"
@@ -44,100 +49,180 @@
 #define UDP_PORT 1883
 
 #define REQUEST_RETRIES 4
-#define DEFAULT_SEND_INTERVAL       (10 * CLOCK_SECOND)
+#define DEFAULT_SEND_INTERVAL (10 * CLOCK_SECOND)
 #define REPLY_TIMEOUT (3 * CLOCK_SECOND)
 #define INACTIVITY_TIMEOUT (300 * CLOCK_SECOND)
 
-#define TOPIC_STA "/tvcwb1299/mmm/sta/%02X%02X"
+#define TOPIC_STA_SENSOR "/tvcwb1299/mmm/sta/%02X%02X/%s"
+#define TOPIC_STA_GENERAL "/tvcwb1299/mmm/sta/%02X%02X"
 #define TOPIC_CMD "/tvcwb1299/mmm/cmd/%02X%02X"
+
+#ifndef UDP_CONNECTION_ADDR
+#if RESOLV_CONF_SUPPORTS_MDNS
+#define UDP_CONNECTION_ADDR       danieldias.mooo.com // pksr.eletrica.eng.br
+#elif UIP_CONF_ROUTER
+#define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
+#else
+#define UDP_CONNECTION_ADDR       fe80:0:0:0:6466:6666:6666:6666
+#endif
+#endif /* !UDP_CONNECTION_ADDR */
+
+#define _QUOTEME(x) #x
+#define QUOTEME(x) _QUOTEME(x)
+
+#define GREEN_LED_SENDING_MESSAGE 1
+#define GREEN_LED_NO_MESSAGE 2
+#define GREEN_LED_OFF 3
+#define GREEN_LED_OFF_REBOOTING 4
+
+#define RED_LED_CONNECTING 1
+#define RED_LED_CONNECTED 2
+#define RED_LED_OFF 3
+#define RED_LED_OFF_REBOOTING 4
+
+/******************************** Sensor IDs **********************************/
+
+/* Rain Sensors */
+#define SENSOR_RAIN_SURFACE_1 "RS1"
+#define SENSOR_RAIN_SURFACE_2 "RS2"
+#define SENSOR_RAIN_SURFACE_3 "RS3"
+#define SENSOR_RAIN_SURFACE_4 "RS4"
+#define SENSOR_RAIN_DRAIN_1 "RD1"
+
+/* Capacitive soil moisture sensor */
+#define SENSOR_CAPACITIVE_SOIL_MOISTURE "CSM"
+
+/* Pluviometer sensor */
+#define SENSOR_PLUVIOMETER "PLV"
+
+/******************************************************************************
+ * Global variables
+ ******************************************************************************/
 
 static struct mqtt_sn_connection mqtt_sn_c;
 static char mqtt_client_id[17];
-static char ctrl_topic[27] = "\0";
-static char pub_topic[27] = "\0";
+static char ctrl_topic[24] = "\0";
+static char pub_topic_general[24] = "\0";
+static char pub_topic_sensor[28] = "\0";
 static uint16_t ctrl_topic_id;
 static uint16_t publisher_topic_id;
 static publish_packet_t incoming_packet;
 static uint16_t ctrl_topic_msg_id;
 static uint16_t reg_topic_msg_id;
 static uint16_t mqtt_keep_alive=10;
-static int8_t qos = 2;
+static int8_t qos = 1;
 static uint8_t retain = FALSE;
 static clock_time_t send_interval;
 static mqtt_sn_subscribe_request subreq;
 static mqtt_sn_register_request regreq;
-//uint8_t debug = FALSE;
+
+static uint8_t green_led_state = GREEN_LED_OFF;
+static uint8_t red_led_state = RED_LED_CONNECTING;
 
 static enum mqttsn_connection_status connection_state = MQTTSN_DISCONNECTED;
 
-/*A few events for managing device state*/
+static struct ctimer connection_timer;
+static process_event_t connection_timeout_event;
+
 static process_event_t mqttsn_connack_event, network_inactivity_timeout_reset;
 
+/******************************************************************************
+ * Processes definition
+ ******************************************************************************/
+
 PROCESS(mqttsn_process, "Configure Connection and Topic Registration");
-PROCESS(publish_process, "register topic and publish data");
-PROCESS(ctrl_subscription_process, "subscribe to a device control channel");
-PROCESS(inactivity_watchdog_process, "monitor network inactivity");
-PROCESS_NAME(cetic_6lbr_client_process);
+PROCESS(publish_process, "Register topic and publish data");
+PROCESS(ctrl_subscription_process, "Subscribe to a device control channel");
+PROCESS(inactivity_watchdog_process, "Monitor for network inactivity");
+PROCESS(reboot_process, "Reboots the board");
+PROCESS(green_led_process, "Controls green led indicator");
+PROCESS(red_led_process, "Controls ref led indicator");
 
 AUTOSTART_PROCESSES(&mqttsn_process);
 
-/*---------------------------------------------------------------------------*/
+/******************************************************************************
+ * Functions implementation
+ ******************************************************************************/
+
+/*********************************** General **********************************/
+
+void reset_board()
+{
+  process_start(&reboot_process, 0);
+}
+
+void loop_forever()
+{
+  while (true);
+}
+
+void set_green_led(uint8_t value ) {
+   green_led_state = value;
+}
+
+void set_red_led(uint8_t value) {
+   red_led_state = value;
+}
+
+/************************************ MQTT ************************************/
+
 static void
 puback_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
-  PRINTF("Puback received\n");
+  PRINTF("[E] Puback received\n");
+  set_green_led(GREEN_LED_NO_MESSAGE);
 }
-/*---------------------------------------------------------------------------*/
+
 static void
 connack_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
   uint8_t connack_return_code;
   connack_return_code = *(data + 3);
-  PRINTF("Connack received\n");
+  PRINTF("[E] Connack received\n");
   if (connack_return_code == ACCEPTED) {
     process_post(&mqttsn_process, mqttsn_connack_event, NULL);
   } else {
-    PRINTF("Connack error: %s\n", mqtt_sn_return_code_string(connack_return_code));
+    PRINTF("[E] Connack error: %s\n", mqtt_sn_return_code_string(connack_return_code));
   }
 }
-/*---------------------------------------------------------------------------*/
+
 static void
 regack_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
   regack_packet_t incoming_regack;
   memcpy(&incoming_regack, data, datalen);
-  PRINTF("Regack received\n");
+  PRINTF("[E] Regack received\n");
   if (incoming_regack.message_id == reg_topic_msg_id) {
     if (incoming_regack.return_code == ACCEPTED) {
       publisher_topic_id = uip_htons(incoming_regack.topic_id);
     } else {
-      PRINTF("Regack error: %s\n", mqtt_sn_return_code_string(incoming_regack.return_code));
+      PRINTF("[E] Regack error: %s\n", mqtt_sn_return_code_string(incoming_regack.return_code));
     }
   }
 }
-/*---------------------------------------------------------------------------*/
+
 static void
 suback_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
   suback_packet_t incoming_suback;
   memcpy(&incoming_suback, data, datalen);
-  PRINTF("Suback received\n");
+  PRINTF("[E] Suback received\n");
   if (incoming_suback.message_id == ctrl_topic_msg_id) {
     if (incoming_suback.return_code == ACCEPTED) {
       ctrl_topic_id = uip_htons(incoming_suback.topic_id);
     } else {
-      PRINTF("Suback error: %s\n", mqtt_sn_return_code_string(incoming_suback.return_code));
+      PRINTF("[E] Suback error: %s\n", mqtt_sn_return_code_string(incoming_suback.return_code));
     }
   }
 }
-/*---------------------------------------------------------------------------*/
+
 static void
 publish_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
   //publish_packet_t* pkt = (publish_packet_t*)data;
   memcpy(&incoming_packet, data, datalen);
   incoming_packet.data[datalen-7] = 0x00;
-  PRINTF("Published message received: %s\n", incoming_packet.data);
+  PRINTF("[E] Published message received: %s\n", incoming_packet.data);
   //see if this message corresponds to ctrl channel subscription request
   if (uip_htons(incoming_packet.topic_id) == ctrl_topic_id) {
     // TODO Tratar dados recebidos
@@ -146,32 +231,24 @@ publish_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr
     //current_duty = atoi(incoming_packet.data);
     // TODO Incluir código para comando recebido
   } else {
-    PRINTF("unknown publication received\n");
+    PRINTF("[E] Unknown publication received.\n");
   }
 
 }
-/*---------------------------------------------------------------------------*/
+
 static void
 pingreq_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
-  PRINTF("PingReq received\n");
+  PRINTF("[E] PingReq received\n");
 }
-/*---------------------------------------------------------------------------*/
-static void publish_status()
+
+static void
+disconnect_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
-    static char buf[20];
-    static uint8_t buf_len;
-    // TODO Alterar função para receber valor e enviar utilizando o tipo correto de dado
-    //sprintf(buf, "%" PRIu16, current_duty); //removendo o warning do GCC para o uint32_t
-    PRINTF("publishing at topic: %s -> msg: %s\n", pub_topic, buf);
-    buf_len = strlen(buf);
-    mqtt_sn_send_publish(&mqtt_sn_c, publisher_topic_id,
-                         MQTT_SN_TOPIC_TYPE_NORMAL, buf, buf_len, qos, retain);
-    process_post(&inactivity_watchdog_process, network_inactivity_timeout_reset, NULL);
+  PRINTF("[E] Disconnection received\n");
+  reset_board();
 }
 
-
-/*Add callbacks here if we make them*/
 static const struct mqtt_sn_callbacks mqtt_sn_call = {
   publish_receiver,
   pingreq_receiver,
@@ -180,108 +257,31 @@ static const struct mqtt_sn_callbacks mqtt_sn_call = {
   regack_receiver,
   puback_receiver,
   suback_receiver,
-  NULL,
+  disconnect_receiver,
   NULL
-  };
+};
 
-/*---------------------------------------------------------------------------*/
-/*this process will publish data at regular intervals*/
-PROCESS_THREAD(publish_process, ev, data)
+static void publish_status(const char* sensor_id, const char data[20])
 {
-  static uint8_t registration_tries;
-  static struct etimer send_timer;
-  static mqtt_sn_register_request *rreq = &regreq;
-
-  PROCESS_BEGIN();
-
-  send_interval = DEFAULT_SEND_INTERVAL;
-  sprintf(pub_topic,TOPIC_STA,linkaddr_node_addr.u8[6],linkaddr_node_addr.u8[7]);
-  PRINTF("registering topic\n");
-  registration_tries =0;
-  while (registration_tries < REQUEST_RETRIES)
-  {
-
-    reg_topic_msg_id = mqtt_sn_register_try(rreq,&mqtt_sn_c,pub_topic,REPLY_TIMEOUT);
-    //PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(rreq));
-    etimer_set(&send_timer, 5*CLOCK_SECOND);
-    PROCESS_WAIT_EVENT();
-    if (mqtt_sn_request_success(rreq)) {
-      registration_tries = 4;
-      PRINTF("registration acked\n");
-    }
-    else {
-      registration_tries++;
-      if (rreq->state == MQTTSN_REQUEST_FAILED) {
-          PRINTF("Regack error: %s\n", mqtt_sn_return_code_string(rreq->return_code));
-      }
-    }
+  set_green_led(GREEN_LED_SENDING_MESSAGE);
+  static uint8_t buf_len;
+  sprintf(pub_topic_sensor, TOPIC_STA_SENSOR, linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7], sensor_id);
+  PRINTF("Publishing at topic: %s -> msg: %s\n", pub_topic_sensor, data);
+  buf_len = strlen(data);
+  uint16_t result = mqtt_sn_send_publish(&mqtt_sn_c, publisher_topic_id,
+                       MQTT_SN_TOPIC_TYPE_NORMAL, data, buf_len, qos, retain);
+  process_post(&inactivity_watchdog_process, network_inactivity_timeout_reset, NULL);
+  if (result == 0) {
+     PRINTF("** Error publishing message **");
   }
-  if (mqtt_sn_request_success(rreq)){
-    //start topic publishing to topic at regular intervals
-    etimer_set(&send_timer, send_interval);
-    while(1)
-    {
-      PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&send_timer));
-      publish_status();
-      /*if (ctimer_expired(&(mqtt_sn_c.receive_timer)))
-      {
-          process_post(&mqttsn_process, (process_event_t)(NULL), (process_event_t)(41));
-      }*/
-      etimer_set(&send_timer, send_interval);
-    }
-  } else {
-    PRINTF("unable to register topic\n");
-  }
-  PROCESS_END();
 }
 
-/*---------------------------------------------------------------------------*/
-/*this process will create a subscription and monitor for incoming traffic*/
-PROCESS_THREAD(ctrl_subscription_process, ev, data)
-{
-  static uint8_t subscription_tries;
-  static mqtt_sn_subscribe_request *sreq = &subreq;
-  static struct etimer periodic_timer;
-  PROCESS_BEGIN();
-  subscription_tries = 0;
-  sprintf(ctrl_topic,TOPIC_CMD,linkaddr_node_addr.u8[6],linkaddr_node_addr.u8[7]);
-  PRINTF("requesting subscription\n");
-  while(subscription_tries < REQUEST_RETRIES)
-  {
-      PRINTF("subscribing... topic: %s\n", ctrl_topic);
-      ctrl_topic_msg_id = mqtt_sn_subscribe_try(sreq,&mqtt_sn_c,ctrl_topic,0,REPLY_TIMEOUT);
-
-      //PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(sreq));
-      etimer_set(&periodic_timer, 5*CLOCK_SECOND);
-      PROCESS_WAIT_EVENT();
-      if (mqtt_sn_request_success(sreq)) {
-          subscription_tries = 4;
-          PRINTF("subscription acked\n");
-      }
-      else {
-          subscription_tries++;
-          if (sreq->state == MQTTSN_REQUEST_FAILED) {
-              PRINTF("Suback error: %s\n", mqtt_sn_return_code_string(sreq->return_code));
-          }
-      }
-  }
-  PROCESS_END();
-}
-
-/*---------------------------------------------------------------------------*/
-/*this main process will create connection and register topics*/
-/*---------------------------------------------------------------------------*/
-
-
-static struct ctimer connection_timer;
-static process_event_t connection_timeout_event;
 
 static void connection_timer_callback(void *mqc)
 {
   process_post(&mqttsn_process, connection_timeout_event, NULL);
 }
 
-/*---------------------------------------------------------------------------*/
 static void
 print_local_addresses(void)
 {
@@ -298,22 +298,10 @@ print_local_addresses(void)
     }
   }
 }
-/*---------------------------------------------------------------------------*/
+
 static resolv_status_t
 set_connection_address(uip_ipaddr_t *ipaddr)
 {
-#ifndef UDP_CONNECTION_ADDR
-#if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       danieldias.mooo.com // pksr.eletrica.eng.br
-#elif UIP_CONF_ROUTER
-#define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
-#else
-#define UDP_CONNECTION_ADDR       fe80:0:0:0:6466:6666:6666:6666
-#endif
-#endif /* !UDP_CONNECTION_ADDR */
-
-#define _QUOTEME(x) #x
-#define QUOTEME(x) _QUOTEME(x)
 
   resolv_status_t status = RESOLV_STATUS_ERROR;
 
@@ -340,9 +328,88 @@ set_connection_address(uip_ipaddr_t *ipaddr)
   return status;
 }
 
-void reset_board() {
-  PRINTF("Watchdog detected network inactivity. REBOOTING board...\n");
-  while (true);
+/******************************************************************************
+ * Processes implementation
+ ******************************************************************************/
+
+PROCESS_THREAD(publish_process, ev, data)
+{
+  static uint8_t registration_tries;
+  static struct etimer send_timer;
+  static mqtt_sn_register_request *rreq = &regreq;
+
+  PROCESS_BEGIN();
+
+  send_interval = DEFAULT_SEND_INTERVAL;
+  sprintf(pub_topic_general,TOPIC_STA_GENERAL,linkaddr_node_addr.u8[6],linkaddr_node_addr.u8[7]);
+  PRINTF("Registering topic %s.\n", pub_topic_general);
+  registration_tries =0;
+  while (registration_tries < REQUEST_RETRIES)
+  {
+
+    reg_topic_msg_id = mqtt_sn_register_try(rreq,&mqtt_sn_c,pub_topic_general,REPLY_TIMEOUT);
+    //PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(rreq));
+    etimer_set(&send_timer, 5*CLOCK_SECOND);
+    PROCESS_WAIT_EVENT();
+    if (mqtt_sn_request_success(rreq)) {
+      registration_tries = 4;
+      PRINTF("Registration acked.\n");
+    }
+    else {
+      registration_tries++;
+      if (rreq->state == MQTTSN_REQUEST_FAILED) {
+          PRINTF("Regack error: %s\n", mqtt_sn_return_code_string(rreq->return_code));
+      }
+    }
+  }
+  if (mqtt_sn_request_success(rreq)){
+    //start topic publishing to topic at regular intervals
+    etimer_set(&send_timer, send_interval);
+    while(1)
+    {
+      PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&send_timer));
+      publish_status("PLV", "1178781");
+      /*if (ctimer_expired(&(mqtt_sn_c.receive_timer)))
+      {
+          process_post(&mqttsn_process, (process_event_t)(NULL), (process_event_t)(41));
+      }*/
+      etimer_set(&send_timer, send_interval);
+    }
+  } else {
+    PRINTF("Unable to register topic.\n");
+  }
+  PROCESS_END();
+}
+
+PROCESS_THREAD(ctrl_subscription_process, ev, data)
+{
+  static uint8_t subscription_tries;
+  static mqtt_sn_subscribe_request *sreq = &subreq;
+  static struct etimer periodic_timer;
+  PROCESS_BEGIN();
+  subscription_tries = 0;
+  sprintf(ctrl_topic,TOPIC_CMD,linkaddr_node_addr.u8[6],linkaddr_node_addr.u8[7]);
+  PRINTF("Requesting subscription\n");
+  while(subscription_tries < REQUEST_RETRIES)
+  {
+      PRINTF("Subscribing... topic: %s\n", ctrl_topic);
+      ctrl_topic_msg_id = mqtt_sn_subscribe_try(sreq,&mqtt_sn_c,ctrl_topic,0,REPLY_TIMEOUT);
+
+      //PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(sreq));
+      etimer_set(&periodic_timer, 5*CLOCK_SECOND);
+      PROCESS_WAIT_EVENT();
+      if (mqtt_sn_request_success(sreq)) {
+          subscription_tries = 4;
+          PRINTF("Subscription acked\n");
+      }
+      else {
+          subscription_tries++;
+          if (sreq->state == MQTTSN_REQUEST_FAILED) {
+              PRINTF("Suback error: %s\n", mqtt_sn_return_code_string(sreq->return_code));
+          }
+      }
+  }
+  PROCESS_END();
 }
 
 PROCESS_THREAD(inactivity_watchdog_process, ev, data)
@@ -366,6 +433,72 @@ PROCESS_THREAD(inactivity_watchdog_process, ev, data)
   PROCESS_END();
 }
 
+PROCESS_THREAD(reboot_process, ev, data)
+{
+   static struct etimer et;
+   PROCESS_BEGIN();
+   set_red_led(RED_LED_OFF_REBOOTING);
+   set_green_led(GREEN_LED_OFF_REBOOTING);
+   etimer_set(&et, CLOCK_SECOND * 0.8);
+   PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+   leds_off(LEDS_ALL);
+   PRINTF("***** Watchdog detected network inactivity/disconnection. REBOOTING board...\n\n\n");
+   static uint8_t i = 0;
+   while (i < 6) {
+     leds_toggle(LEDS_ALL);
+     etimer_set(&et, CLOCK_SECOND * 0.8);
+     PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+     leds_toggle(LEDS_ALL);
+     etimer_set(&et, CLOCK_SECOND * 0.5);
+     PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+     i++;
+   }
+   loop_forever();
+   PROCESS_END();
+}
+
+PROCESS_THREAD(green_led_process, ev, data)
+{
+   static struct etimer et;
+   PROCESS_BEGIN();
+   leds_off(LEDS_GREEN);
+   while (true) {
+      if (green_led_state == GREEN_LED_SENDING_MESSAGE) {
+         leds_off(LEDS_GREEN);
+      } else if (green_led_state == GREEN_LED_NO_MESSAGE) {
+         leds_on(LEDS_GREEN);
+      } else if(green_led_state == GREEN_LED_OFF) {
+         leds_off(LEDS_GREEN);
+      } else if (green_led_state == GREEN_LED_OFF_REBOOTING) {
+         break;
+      }
+      etimer_set(&et, CLOCK_SECOND * 0.1);
+      PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+   }
+   PROCESS_END();
+}
+
+PROCESS_THREAD(red_led_process, ev, data)
+{
+   static struct etimer et;
+   PROCESS_BEGIN();
+   leds_off(LEDS_RED);
+   while (true) {
+      if (red_led_state == RED_LED_CONNECTING) {
+         leds_toggle(LEDS_RED);
+      } else if (red_led_state == RED_LED_CONNECTED) {
+         leds_on(LEDS_RED);
+      } else if (red_led_state == RED_LED_OFF) {
+         leds_off(LEDS_RED);
+      } else if (red_led_state == RED_LED_OFF_REBOOTING) {
+         break;
+      }
+      etimer_set(&et, CLOCK_SECOND * 0.6);
+      PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+   }
+   PROCESS_END();
+}
+
 PROCESS_THREAD(mqttsn_process, ev, data)
 {
   static struct etimer periodic_timer;
@@ -377,25 +510,23 @@ PROCESS_THREAD(mqttsn_process, ev, data)
 
   PROCESS_BEGIN();
 
-#if RESOLV_CONF_SUPPORTS_MDNS
-#ifdef CONTIKI_CONF_CUSTOM_HOSTNAME
+  process_start(&green_led_process, 0);
+  process_start(&red_led_process, 0);
+
+  etimer_set(&et, CLOCK_SECOND * 1);
+  PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+
   sprintf(contiki_hostname,"node%02X%02X",linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7]);
   resolv_set_hostname(contiki_hostname);
-  PRINTF("Setting hostname to %s\n",contiki_hostname);
-#endif
-#endif
+  PRINTF("----- Setting hostname to %s\n",contiki_hostname);
 
   mqttsn_connack_event = process_alloc_event();
 
   mqtt_sn_set_debug(1);
-  //uip_ip6addr(&broker_addr, 0xaaaa, 0, 0, 0, 0, 0, 0, 1);
-  //uip_ip6addr(&broker_addr, 0x2001, 0x0db8, 1, 0xffff, 0, 0, 0xc0a8, 0xd480);//192.168.212.128 with tayga
-  //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xc0a8, 0xd480);//192.168.212.128 with tayga
-  //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xac10, 0xdc01);//172.16.220.1 with tayga
-  uip_ip6addr(&google_dns, 0x2001, 0x4860, 0x4860, 0x0, 0x0, 0x0, 0x0, 0x8888);//172.16.220.1 with tayga
-#if CC26XX_WEB_DEMO_6LBR_CLIENT
-  process_start(&cetic_6lbr_client_process, NULL);
-#endif
+  uip_ip6addr(&google_dns, 0x2001, 0x4860, 0x4860, 0x0, 0x0, 0x0, 0x0, 0x8888);
+
+  set_red_led(RED_LED_CONNECTING);
+
   etimer_set(&periodic_timer, 2*CLOCK_SECOND);
   while(uip_ds6_get_global(ADDR_PREFERRED) == NULL)
   {
@@ -411,7 +542,6 @@ PROCESS_THREAD(mqttsn_process, ev, data)
 
   rpl_dag_t *dag = rpl_get_any_dag();
   if(dag) {
-    //uip_ipaddr_copy(sixlbr_addr, globaladdr);
     uip_nameserver_update(&google_dns, UIP_NAMESERVER_INFINITE_LIFETIME);
   }
 
@@ -420,7 +550,6 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     status = set_connection_address(&broker_addr);
 
     if(status == RESOLV_STATUS_RESOLVING) {
-      //PROCESS_WAIT_EVENT_UNTIL(ev == resolv_event_found);
       PROCESS_WAIT_EVENT();
     } else if(status != RESOLV_STATUS_CACHED) {
       PRINTF("Can't get connection address.\n");
@@ -429,29 +558,23 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     }
   }
 
-  //uip_ip6addr(&broker_addr, 0x2804,0x7f4,0x3b80,0xcdf7,0x241b,0x1ab2,0xa46a,0x9912);//172.16.220.128 with tayga
-
   mqtt_sn_create_socket(&mqtt_sn_c,UDP_PORT, &broker_addr, UDP_PORT);
   (&mqtt_sn_c)->mc = &mqtt_sn_call;
 
-
   sprintf(mqtt_client_id,"sens%02X%02X%02X%02X",linkaddr_node_addr.u8[4],linkaddr_node_addr.u8[5],linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7]);
 
-
-  /*Request a connection and wait for connack*/
-  PRINTF("requesting connection \n ");
+  PRINTF("Requesting connection...\n");
   connection_timeout_event = process_alloc_event();
-  //testegoto:
   connection_retries = 0;
-  ctimer_set( &connection_timer, REPLY_TIMEOUT, connection_timer_callback, NULL);
+  ctimer_set(&connection_timer, REPLY_TIMEOUT, connection_timer_callback, NULL);
   mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
   connection_state = MQTTSN_WAITING_CONNACK;
-  while (connection_retries < 15)
+  while (connection_retries < 11)
   {
     PROCESS_WAIT_EVENT();
     if (ev == mqttsn_connack_event) {
       //if success
-      PRINTF("connection acked\n");
+      PRINTF("Connection acked.\n");
       ctimer_stop(&connection_timer);
       connection_state = MQTTSN_CONNECTED;
       connection_retries = 15;//using break here may mess up switch statement of proces
@@ -459,7 +582,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     if (ev == connection_timeout_event) {
       connection_state = MQTTSN_CONNECTION_FAILED;
       connection_retries++;
-      PRINTF("connection timeout\n");
+      PRINTF("Connection timeout (%i).\n", connection_retries);
       ctimer_restart(&connection_timer);
       if (connection_retries < 15) {
         mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
@@ -469,9 +592,10 @@ PROCESS_THREAD(mqttsn_process, ev, data)
   }
   ctimer_stop(&connection_timer);
   if (connection_state == MQTTSN_CONNECTED){
+    set_red_led(RED_LED_CONNECTED);
+    set_green_led(GREEN_LED_NO_MESSAGE);
     process_start(&ctrl_subscription_process, 0);
     etimer_set(&periodic_timer, 3*CLOCK_SECOND);
-    //PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
     while(!etimer_expired(&periodic_timer))
         PROCESS_WAIT_EVENT();
     process_start(&publish_process, 0);
@@ -481,15 +605,12 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     {
       PROCESS_WAIT_EVENT();
       if(etimer_expired(&et)) {
-        leds_toggle(LEDS_ALL);
         etimer_restart(&et);
       }
     }
   } else {
-    PRINTF("unable to connect\n");
+    PRINTF("Unable to connect!\n");
     reset_board();
   }
   PROCESS_END();
 }
-/*---------------------------------------------------------------------------*/
-
