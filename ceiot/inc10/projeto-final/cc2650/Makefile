@@ -11,5 +11,7 @@ CFLAGS += -g
 DEBUG = 1
 APPS += powertrace
 PROJECT_SOURCEFILES += mqtt-sn.c
+PROJECT_SOURCEFILES += pluv-interruption.c
+PROJECT_SOURCEFILES += sensors-helper.c
 PROJECT_SOURCEFILES += ../../../../../core/net/llsec/noncoresec/noncoresec.c
 include $(CONTIKI)/Makefile.include

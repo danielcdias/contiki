@@ -37,6 +37,9 @@
 
 #include "net/ip/uip-debug.h"
 
+#include "sensors-helper.h"
+#include "pluv-interruption.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
@@ -80,21 +83,6 @@
 #define RED_LED_OFF 3
 #define RED_LED_OFF_REBOOTING 4
 
-/******************************** Sensor IDs **********************************/
-
-/* Rain Sensors */
-#define SENSOR_RAIN_SURFACE_1 "RS1"
-#define SENSOR_RAIN_SURFACE_2 "RS2"
-#define SENSOR_RAIN_SURFACE_3 "RS3"
-#define SENSOR_RAIN_SURFACE_4 "RS4"
-#define SENSOR_RAIN_DRAIN_1 "RD1"
-
-/* Capacitive soil moisture sensor */
-#define SENSOR_CAPACITIVE_SOIL_MOISTURE "CSM"
-
-/* Pluviometer sensor */
-#define SENSOR_PLUVIOMETER "PLV"
-
 /******************************************************************************
  * Global variables
  ******************************************************************************/
@@ -115,6 +103,9 @@ static uint8_t retain = FALSE;
 static clock_time_t send_interval;
 static mqtt_sn_subscribe_request subreq;
 static mqtt_sn_register_request regreq;
+static bool is_connected = false;
+
+static bool is_raining = false;
 
 static uint8_t green_led_state = GREEN_LED_OFF;
 static uint8_t red_led_state = RED_LED_CONNECTING;
@@ -137,6 +128,10 @@ PROCESS(inactivity_watchdog_process, "Monitor for network inactivity");
 PROCESS(reboot_process, "Reboots the board");
 PROCESS(green_led_process, "Controls green led indicator");
 PROCESS(red_led_process, "Controls ref led indicator");
+
+PROCESS(rain_sensors_process, "Reads from all rain sensors");
+PROCESS(moisture_sensor_process, "Reads from capacitive soil moisture sensor");
+PROCESS(pluviometer_sensor_process, "Receives events from pluviometer sensor");
 
 AUTOSTART_PROCESSES(&mqttsn_process);
 
@@ -246,6 +241,7 @@ static void
 disconnect_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
   PRINTF("[E] Disconnection received\n");
+  is_connected = false;
   reset_board();
 }
 
@@ -261,15 +257,17 @@ static const struct mqtt_sn_callbacks mqtt_sn_call = {
   NULL
 };
 
-static void publish_status(const char* sensor_id, const char data[20])
+static void publish_status(const char* sensor_id, u_int16_t data)
 {
   set_green_led(GREEN_LED_SENDING_MESSAGE);
+  static char buf[20];
   static uint8_t buf_len;
   sprintf(pub_topic_sensor, TOPIC_STA_SENSOR, linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7], sensor_id);
-  PRINTF("Publishing at topic: %s -> msg: %s\n", pub_topic_sensor, data);
-  buf_len = strlen(data);
+  sprintf(buf, "%" PRIu16, data);
+  PRINTF("Publishing at topic: %s -> msg: %s\n", pub_topic_sensor, buf);
+  buf_len = strlen(buf);
   uint16_t result = mqtt_sn_send_publish(&mqtt_sn_c, publisher_topic_id,
-                       MQTT_SN_TOPIC_TYPE_NORMAL, data, buf_len, qos, retain);
+                       MQTT_SN_TOPIC_TYPE_NORMAL, buf, buf_len, qos, retain);
   process_post(&inactivity_watchdog_process, network_inactivity_timeout_reset, NULL);
   if (result == 0) {
      PRINTF("** Error publishing message **");
@@ -368,11 +366,6 @@ PROCESS_THREAD(publish_process, ev, data)
     while(1)
     {
       PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&send_timer));
-      publish_status("PLV", "1178781");
-      /*if (ctimer_expired(&(mqtt_sn_c.receive_timer)))
-      {
-          process_post(&mqttsn_process, (process_event_t)(NULL), (process_event_t)(41));
-      }*/
       etimer_set(&send_timer, send_interval);
     }
   } else {
@@ -573,7 +566,6 @@ PROCESS_THREAD(mqttsn_process, ev, data)
   {
     PROCESS_WAIT_EVENT();
     if (ev == mqttsn_connack_event) {
-      //if success
       PRINTF("Connection acked.\n");
       ctimer_stop(&connection_timer);
       connection_state = MQTTSN_CONNECTED;
@@ -592,6 +584,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
   }
   ctimer_stop(&connection_timer);
   if (connection_state == MQTTSN_CONNECTED){
+    is_connected = true;
     set_red_led(RED_LED_CONNECTED);
     set_green_led(GREEN_LED_NO_MESSAGE);
     process_start(&ctrl_subscription_process, 0);
@@ -600,6 +593,9 @@ PROCESS_THREAD(mqttsn_process, ev, data)
         PROCESS_WAIT_EVENT();
     process_start(&publish_process, 0);
     process_start(&inactivity_watchdog_process, NULL);
+    process_start(&rain_sensors_process, NULL);
+    process_start(&moisture_sensor_process, NULL);
+    process_start(&pluviometer_sensor_process, NULL);
     etimer_set(&et, 2*CLOCK_SECOND);
     while(1)
     {
@@ -613,4 +609,92 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     reset_board();
   }
   PROCESS_END();
+}
+
+PROCESS_THREAD(rain_sensors_process, ev, data)
+{
+   static struct etimer et;
+
+   PROCESS_BEGIN();
+
+   configureGPIOSensors();
+   while (is_connected) {
+       static int valueRead[5];
+       valueRead[0] = readGPIOSensor(RAIN_SENSOR_SURFACE_1);
+       valueRead[1] = readGPIOSensor(RAIN_SENSOR_SURFACE_2);
+       valueRead[2] = readGPIOSensor(RAIN_SENSOR_SURFACE_3);
+       valueRead[3] = readGPIOSensor(RAIN_SENSOR_SURFACE_4);
+       valueRead[4] = readGPIOSensor(RAIN_SENSOR_DRAIN);
+
+       if ((!is_raining) && (valueRead[0] == RAIN_SENSOR_RAINING)) {
+          is_raining = true;
+          publish_status(SENSOR_RAIN_SURFACE_1, RAIN_SENSOR_RAINING);
+       }
+       if ((!is_raining) && (valueRead[1] == RAIN_SENSOR_RAINING)) {
+          is_raining = true;
+          publish_status(SENSOR_RAIN_SURFACE_2, RAIN_SENSOR_RAINING);
+       }
+       if ((!is_raining) && (valueRead[2] == RAIN_SENSOR_RAINING)) {
+          is_raining = true;
+          publish_status(SENSOR_RAIN_SURFACE_3, RAIN_SENSOR_RAINING);
+       }
+       if ((!is_raining) && (valueRead[3] == RAIN_SENSOR_RAINING)) {
+          is_raining = true;
+          publish_status(SENSOR_RAIN_SURFACE_4, RAIN_SENSOR_RAINING);
+       }
+
+       if ((is_raining) && (valueRead[4] == RAIN_SENSOR_RAINING)) {
+          publish_status(SENSOR_RAIN_DRAIN_1, RAIN_SENSOR_RAINING);
+       }
+
+       if ((valueRead[0] + valueRead[1] + valueRead[2] + valueRead[3]) == (RAIN_SENSOR_NOT_RAINING * 4)) {
+          is_raining = false;
+       }
+
+       etimer_set(&et, RAIN_SENSORS_READ_INTERVAL * CLOCK_SECOND);
+       PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
+   }
+
+   PROCESS_END();
+}
+
+PROCESS_THREAD(moisture_sensor_process, ev, data)
+{
+   static struct etimer et;
+
+   PROCESS_BEGIN();
+
+   while (is_connected) {
+      int sensorRead = readADSMoistureSensor();
+      printf("##### Moisture sensor - value read: %i\n", sensorRead);
+      publish_status(SENSOR_CAPACITIVE_SOIL_MOISTURE, sensorRead);
+      if (is_raining) {
+         etimer_set(&et, (MOISTURE_SENSOR_READ_INTERVAL_RAIN  * CLOCK_SECOND));
+       } else {
+         etimer_set(&et, (MOISTURE_SENSOR_READ_INTERVAL_NO_RAIN  * CLOCK_SECOND));
+      }
+      PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
+   }
+
+   PROCESS_END();
+}
+
+PROCESS_THREAD(pluviometer_sensor_process, ev, data)
+{
+   PROCESS_BEGIN();
+   SENSORS_ACTIVATE(pluviometer_sensor);
+
+   while(is_connected) {
+       PROCESS_YIELD();
+
+       if(ev == sensors_event) {
+           if(data == &pluviometer_sensor) {
+               printf("##### Pluviometer Sensor event received!\n");
+               publish_status(SENSOR_PLUVIOMETER, PLUVIOMETER_VALUE);
+           }
+       }
+   }
+
+   SENSORS_DEACTIVATE(pluviometer_sensor);
+   PROCESS_END();
 }
