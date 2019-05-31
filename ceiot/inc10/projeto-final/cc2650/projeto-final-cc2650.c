@@ -51,7 +51,7 @@
 
 #define UDP_PORT 1883
 
-#define REQUEST_RETRIES 4
+#define REQUEST_RETRIES 10
 #define DEFAULT_SEND_INTERVAL (10 * CLOCK_SECOND)
 #define REPLY_TIMEOUT (3 * CLOCK_SECOND)
 #define INACTIVITY_TIMEOUT (300 * CLOCK_SECOND)
@@ -83,29 +83,64 @@
 #define RED_LED_OFF 3
 #define RED_LED_OFF_REBOOTING 4
 
+#define TOPIC_CONTROL 0
+#define TOPIC_STATUS_GENERAL 1
+#define TOPIC_RAIN_SENSOR_SURFACE_1 2
+#define TOPIC_RAIN_SENSOR_SURFACE_2 3
+#define TOPIC_RAIN_SENSOR_SURFACE_3 4
+#define TOPIC_RAIN_SENSOR_SURFACE_4 5
+#define TOPIC_RAIN_SENSOR_DRAIN 6
+#define TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR 7
+#define TOPIC_PLUVIOMETER 8
+
+#define TOTAL_TOPICS 9
+
 /******************************************************************************
- * Global variables
+ * Global variables and structs definitions
  ******************************************************************************/
+
+/**
+ * Topic sensor struct to contain all topics, topic ids and message ids
+ * information
+ *
+ * Positions inside array:
+ * 0 - control topic (TOPIC_CONTROL)
+ * 1 - general status topic (TOPIC_STATUS_GENERAL)
+ * 2 - rain sensor for surface 1 topic (TOPIC_RAIN_SENSOR_SURFACE_1)
+ * 3 - rain sensor for surface 2 topic (TOPIC_RAIN_SENSOR_SURFACE_2)
+ * 4 - rain sensor for surface 3 topic (TOPIC_RAIN_SENSOR_SURFACE_3)
+ * 5 - rain sensor for surface 4 topic (TOPIC_RAIN_SENSOR_SURFACE_4)
+ * 6 - rain sensor for drain topic (TOPIC_RAIN_SENSOR_DRAIN)
+ * 7 - capacitive soil moisture sensor topic (TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR)
+ * 8 - pluviometer sensor (TOPIC_PLUVIOMETER)
+ *
+ * 'sensor_id' only has value for topics of sensors (index from 2 to 8)
+ *
+ */
+struct topic_sensor_t {
+      uint16_t topic_id;
+      char topic[28];
+      uint16_t message_id;
+      char sensor_id[3];
+};
 
 static struct mqtt_sn_connection mqtt_sn_c;
 static char mqtt_client_id[17];
-static char ctrl_topic[24] = "\0";
-static char pub_topic_general[24] = "\0";
-static char pub_topic_sensor[28] = "\0";
-static uint16_t ctrl_topic_id;
-static uint16_t publisher_topic_id;
+static struct topic_sensor_t pub_sensors_topic[9];
 static publish_packet_t incoming_packet;
-static uint16_t ctrl_topic_msg_id;
-static uint16_t reg_topic_msg_id;
 static uint16_t mqtt_keep_alive=10;
 static int8_t qos = 1;
 static uint8_t retain = FALSE;
 static clock_time_t send_interval;
 static mqtt_sn_subscribe_request subreq;
 static mqtt_sn_register_request regreq;
-static bool is_connected = false;
 
+static bool is_rebooting = false;
+static bool are_sta_topics_registered = false;
+static bool is_cmd_topic_registered = false;
+static bool is_connected = false;
 static bool is_raining = false;
+static bool peak_delay_reported = false;
 
 static uint8_t green_led_state = GREEN_LED_OFF;
 static uint8_t red_led_state = RED_LED_CONNECTING;
@@ -141,9 +176,10 @@ AUTOSTART_PROCESSES(&mqttsn_process);
 
 /*********************************** General **********************************/
 
-void reset_board()
+void reboot_board()
 {
-  process_start(&reboot_process, 0);
+   is_rebooting = true;
+   process_start(&reboot_process, 0);
 }
 
 void loop_forever()
@@ -160,6 +196,28 @@ void set_red_led(uint8_t value) {
 }
 
 /************************************ MQTT ************************************/
+
+static void
+init_sensor_topics_array() {
+   strcpy(pub_sensors_topic[TOPIC_CONTROL].sensor_id, "\0");
+   strcpy(pub_sensors_topic[TOPIC_STATUS_GENERAL].sensor_id, "\0");
+   strcpy(pub_sensors_topic[TOPIC_RAIN_SENSOR_SURFACE_1].sensor_id, SENSOR_RAIN_SURFACE_1);
+   strcpy(pub_sensors_topic[TOPIC_RAIN_SENSOR_SURFACE_2].sensor_id, SENSOR_RAIN_SURFACE_2);
+   strcpy(pub_sensors_topic[TOPIC_RAIN_SENSOR_SURFACE_3].sensor_id, SENSOR_RAIN_SURFACE_3);
+   strcpy(pub_sensors_topic[TOPIC_RAIN_SENSOR_SURFACE_4].sensor_id, SENSOR_RAIN_SURFACE_4);
+   strcpy(pub_sensors_topic[TOPIC_RAIN_SENSOR_DRAIN].sensor_id, SENSOR_RAIN_DRAIN_1);
+   strcpy(pub_sensors_topic[TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR].sensor_id, SENSOR_CAPACITIVE_SOIL_MOISTURE);
+   strcpy(pub_sensors_topic[TOPIC_PLUVIOMETER].sensor_id, SENSOR_PLUVIOMETER);
+   sprintf(pub_sensors_topic[TOPIC_CONTROL].topic, TOPIC_CMD, linkaddr_node_addr.u8[6],
+           linkaddr_node_addr.u8[7]);
+   sprintf(pub_sensors_topic[TOPIC_STATUS_GENERAL].topic, TOPIC_STA_GENERAL, linkaddr_node_addr.u8[6],
+           linkaddr_node_addr.u8[7]);
+   static uint8_t i;
+   for (i = 2; i < TOTAL_TOPICS; i++) {
+      sprintf(pub_sensors_topic[i].topic, TOPIC_STA_SENSOR, linkaddr_node_addr.u8[6],
+              linkaddr_node_addr.u8[7], pub_sensors_topic[i].sensor_id);
+   }
+}
 
 static void
 puback_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
@@ -187,13 +245,20 @@ regack_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr,
   regack_packet_t incoming_regack;
   memcpy(&incoming_regack, data, datalen);
   PRINTF("[E] Regack received\n");
-  if (incoming_regack.message_id == reg_topic_msg_id) {
-    if (incoming_regack.return_code == ACCEPTED) {
-      publisher_topic_id = uip_htons(incoming_regack.topic_id);
-    } else {
-      PRINTF("[E] Regack error: %s\n", mqtt_sn_return_code_string(incoming_regack.return_code));
-    }
+  static bool found = false;
+  static uint8_t i;
+  for (i = 1; i < TOTAL_TOPICS; i++) {
+     if (incoming_regack.message_id == pub_sensors_topic[i].message_id) {
+       if (incoming_regack.return_code == ACCEPTED) {
+          pub_sensors_topic[i].topic_id = uip_htons(incoming_regack.topic_id);
+          found = true;
+       }
+     }
   }
+  if (!found) {
+     PRINTF("[E] Regack error: %s\n", mqtt_sn_return_code_string(incoming_regack.return_code));
+  }
+
 }
 
 static void
@@ -202,9 +267,9 @@ suback_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr,
   suback_packet_t incoming_suback;
   memcpy(&incoming_suback, data, datalen);
   PRINTF("[E] Suback received\n");
-  if (incoming_suback.message_id == ctrl_topic_msg_id) {
+  if (incoming_suback.message_id == pub_sensors_topic[TOPIC_CONTROL].message_id) {
     if (incoming_suback.return_code == ACCEPTED) {
-      ctrl_topic_id = uip_htons(incoming_suback.topic_id);
+       pub_sensors_topic[TOPIC_CONTROL].topic_id = uip_htons(incoming_suback.topic_id);
     } else {
       PRINTF("[E] Suback error: %s\n", mqtt_sn_return_code_string(incoming_suback.return_code));
     }
@@ -214,16 +279,13 @@ suback_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr,
 static void
 publish_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
-  //publish_packet_t* pkt = (publish_packet_t*)data;
   memcpy(&incoming_packet, data, datalen);
   incoming_packet.data[datalen-7] = 0x00;
   PRINTF("[E] Published message received: %s\n", incoming_packet.data);
-  //see if this message corresponds to ctrl channel subscription request
-  if (uip_htons(incoming_packet.topic_id) == ctrl_topic_id) {
+  if (uip_htons(incoming_packet.topic_id) == pub_sensors_topic[TOPIC_CONTROL].topic_id) {
     // TODO Tratar dados recebidos
     // Verificar tamanho dos dados (quantidade de dígitos do número recebido)
     // e utilizar tipo de variavel correta.
-    //current_duty = atoi(incoming_packet.data);
     // TODO Incluir código para comando recebido
   } else {
     PRINTF("[E] Unknown publication received.\n");
@@ -242,7 +304,7 @@ disconnect_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_a
 {
   PRINTF("[E] Disconnection received\n");
   is_connected = false;
-  reset_board();
+  reboot_board();
 }
 
 static const struct mqtt_sn_callbacks mqtt_sn_call = {
@@ -257,16 +319,15 @@ static const struct mqtt_sn_callbacks mqtt_sn_call = {
   NULL
 };
 
-static void publish_status(const char* sensor_id, u_int16_t data)
+static void publish_status(const uint8_t topic_index, uint16_t data)
 {
   set_green_led(GREEN_LED_SENDING_MESSAGE);
   static char buf[20];
   static uint8_t buf_len;
-  sprintf(pub_topic_sensor, TOPIC_STA_SENSOR, linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7], sensor_id);
   sprintf(buf, "%" PRIu16, data);
-  PRINTF("Publishing at topic: %s -> msg: %s\n", pub_topic_sensor, buf);
+  PRINTF("Publishing at topic: %s -> msg: %s\n", pub_sensors_topic[topic_index].topic, buf);
   buf_len = strlen(buf);
-  uint16_t result = mqtt_sn_send_publish(&mqtt_sn_c, publisher_topic_id,
+  uint16_t result = mqtt_sn_send_publish(&mqtt_sn_c, pub_sensors_topic[topic_index].topic_id,
                        MQTT_SN_TOPIC_TYPE_NORMAL, buf, buf_len, qos, retain);
   process_post(&inactivity_watchdog_process, network_inactivity_timeout_reset, NULL);
   if (result == 0) {
@@ -283,7 +344,7 @@ static void connection_timer_callback(void *mqc)
 static void
 print_local_addresses(void)
 {
-  int i;
+  static uint8_t i;
   uint8_t state;
 
   PRINTF("Client IPv6 addresses: ");
@@ -330,50 +391,58 @@ set_connection_address(uip_ipaddr_t *ipaddr)
  * Processes implementation
  ******************************************************************************/
 
+/************************************ MQTT ************************************/
+
+/**
+ * Registers the topics used to report statuses from sensors.
+ */
 PROCESS_THREAD(publish_process, ev, data)
 {
-  static uint8_t registration_tries;
+  static uint8_t registration_tries, rreq_result, rreq_results = 0;
   static struct etimer send_timer;
-  static mqtt_sn_register_request *rreq = &regreq;
 
   PROCESS_BEGIN();
 
   send_interval = DEFAULT_SEND_INTERVAL;
-  sprintf(pub_topic_general,TOPIC_STA_GENERAL,linkaddr_node_addr.u8[6],linkaddr_node_addr.u8[7]);
-  PRINTF("Registering topic %s.\n", pub_topic_general);
-  registration_tries =0;
-  while (registration_tries < REQUEST_RETRIES)
-  {
-
-    reg_topic_msg_id = mqtt_sn_register_try(rreq,&mqtt_sn_c,pub_topic_general,REPLY_TIMEOUT);
-    //PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(rreq));
-    etimer_set(&send_timer, 5*CLOCK_SECOND);
-    PROCESS_WAIT_EVENT();
-    if (mqtt_sn_request_success(rreq)) {
-      registration_tries = 4;
-      PRINTF("Registration acked.\n");
-    }
-    else {
-      registration_tries++;
-      if (rreq->state == MQTTSN_REQUEST_FAILED) {
-          PRINTF("Regack error: %s\n", mqtt_sn_return_code_string(rreq->return_code));
-      }
-    }
+  static uint8_t i;
+  for (i = 1; i < TOTAL_TOPICS; i++) {
+     PRINTF("Registering topic %s\n", pub_sensors_topic[i].topic);
+     static mqtt_sn_register_request *rreq = &regreq;
+     registration_tries = 0;
+     rreq_result = 0;
+     while ((!is_rebooting) && (registration_tries < REQUEST_RETRIES))
+     {
+       pub_sensors_topic[i].message_id = mqtt_sn_register_try(rreq, &mqtt_sn_c, pub_sensors_topic[i].topic, REPLY_TIMEOUT);
+       etimer_set(&send_timer, 1*CLOCK_SECOND);
+       PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &send_timer);
+       if (mqtt_sn_request_success(rreq)) {
+         registration_tries = REQUEST_RETRIES;
+         PRINTF("Registration acked.\n");
+       }
+       else {
+         registration_tries++;
+         if (rreq->state == MQTTSN_REQUEST_FAILED) {
+             PRINTF("Regack error: %s\n", mqtt_sn_return_code_string(rreq->return_code));
+         }
+       }
+     }
+     rreq_result = mqtt_sn_request_success(rreq);
+     rreq_results += rreq_result;
+     if (rreq_result == 0) {
+        PRINTF("Unable to register to topic %s.\n", pub_sensors_topic[i].topic);
+        break;
+     }
   }
-  if (mqtt_sn_request_success(rreq)){
-    //start topic publishing to topic at regular intervals
-    etimer_set(&send_timer, send_interval);
-    while(1)
-    {
-      PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&send_timer));
-      etimer_set(&send_timer, send_interval);
-    }
-  } else {
-    PRINTF("Unable to register topic.\n");
+  if (rreq_results == 8){
+     are_sta_topics_registered = true;
+     PRINTF("All topics registered.\n");
   }
   PROCESS_END();
 }
 
+/**
+ * Registers the topic used as command receiver (control).
+ */
 PROCESS_THREAD(ctrl_subscription_process, ev, data)
 {
   static uint8_t subscription_tries;
@@ -381,19 +450,18 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data)
   static struct etimer periodic_timer;
   PROCESS_BEGIN();
   subscription_tries = 0;
-  sprintf(ctrl_topic,TOPIC_CMD,linkaddr_node_addr.u8[6],linkaddr_node_addr.u8[7]);
   PRINTF("Requesting subscription\n");
-  while(subscription_tries < REQUEST_RETRIES)
+  while ((!is_rebooting) && (subscription_tries < REQUEST_RETRIES))
   {
-      PRINTF("Subscribing... topic: %s\n", ctrl_topic);
-      ctrl_topic_msg_id = mqtt_sn_subscribe_try(sreq,&mqtt_sn_c,ctrl_topic,0,REPLY_TIMEOUT);
-
-      //PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(sreq));
-      etimer_set(&periodic_timer, 5*CLOCK_SECOND);
+      PRINTF("Subscribing... topic: %s\n", pub_sensors_topic[TOPIC_CONTROL].topic);
+      pub_sensors_topic[TOPIC_CONTROL].message_id = mqtt_sn_subscribe_try(sreq,
+         &mqtt_sn_c, pub_sensors_topic[TOPIC_CONTROL].topic, 0, REPLY_TIMEOUT);
+      etimer_set(&periodic_timer, 1*CLOCK_SECOND);
       PROCESS_WAIT_EVENT();
       if (mqtt_sn_request_success(sreq)) {
-          subscription_tries = 4;
+          subscription_tries = REQUEST_RETRIES;
           PRINTF("Subscription acked\n");
+          is_cmd_topic_registered = true;
       }
       else {
           subscription_tries++;
@@ -405,93 +473,9 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data)
   PROCESS_END();
 }
 
-PROCESS_THREAD(inactivity_watchdog_process, ev, data)
-{
-  static struct etimer inactivity_timer;
-  PROCESS_BEGIN();
-  network_inactivity_timeout_reset = process_alloc_event();
-  etimer_set(&inactivity_timer, INACTIVITY_TIMEOUT);
-  while (true)
-  {
-    PROCESS_WAIT_EVENT();
-    if (ev == PROCESS_EVENT_TIMER) {
-        if (etimer_expired(&inactivity_timer)) {
-          reset_board();
-        }
-    }
-    if (ev == network_inactivity_timeout_reset) {
-      etimer_restart(&inactivity_timer);
-    }
-  }
-  PROCESS_END();
-}
-
-PROCESS_THREAD(reboot_process, ev, data)
-{
-   static struct etimer et;
-   PROCESS_BEGIN();
-   set_red_led(RED_LED_OFF_REBOOTING);
-   set_green_led(GREEN_LED_OFF_REBOOTING);
-   etimer_set(&et, CLOCK_SECOND * 0.8);
-   PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
-   leds_off(LEDS_ALL);
-   PRINTF("***** Watchdog detected network inactivity/disconnection. REBOOTING board...\n\n\n");
-   static uint8_t i = 0;
-   while (i < 6) {
-     leds_toggle(LEDS_ALL);
-     etimer_set(&et, CLOCK_SECOND * 0.8);
-     PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
-     leds_toggle(LEDS_ALL);
-     etimer_set(&et, CLOCK_SECOND * 0.5);
-     PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
-     i++;
-   }
-   loop_forever();
-   PROCESS_END();
-}
-
-PROCESS_THREAD(green_led_process, ev, data)
-{
-   static struct etimer et;
-   PROCESS_BEGIN();
-   leds_off(LEDS_GREEN);
-   while (true) {
-      if (green_led_state == GREEN_LED_SENDING_MESSAGE) {
-         leds_off(LEDS_GREEN);
-      } else if (green_led_state == GREEN_LED_NO_MESSAGE) {
-         leds_on(LEDS_GREEN);
-      } else if(green_led_state == GREEN_LED_OFF) {
-         leds_off(LEDS_GREEN);
-      } else if (green_led_state == GREEN_LED_OFF_REBOOTING) {
-         break;
-      }
-      etimer_set(&et, CLOCK_SECOND * 0.1);
-      PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
-   }
-   PROCESS_END();
-}
-
-PROCESS_THREAD(red_led_process, ev, data)
-{
-   static struct etimer et;
-   PROCESS_BEGIN();
-   leds_off(LEDS_RED);
-   while (true) {
-      if (red_led_state == RED_LED_CONNECTING) {
-         leds_toggle(LEDS_RED);
-      } else if (red_led_state == RED_LED_CONNECTED) {
-         leds_on(LEDS_RED);
-      } else if (red_led_state == RED_LED_OFF) {
-         leds_off(LEDS_RED);
-      } else if (red_led_state == RED_LED_OFF_REBOOTING) {
-         break;
-      }
-      etimer_set(&et, CLOCK_SECOND * 0.6);
-      PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
-   }
-   PROCESS_END();
-}
-
+/**
+ * Starts all MQTT communication and all other processes.
+ */
 PROCESS_THREAD(mqttsn_process, ev, data)
 {
   static struct etimer periodic_timer;
@@ -521,7 +505,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
   set_red_led(RED_LED_CONNECTING);
 
   etimer_set(&periodic_timer, 2*CLOCK_SECOND);
-  while(uip_ds6_get_global(ADDR_PREFERRED) == NULL)
+  while ((!is_rebooting) && (uip_ds6_get_global(ADDR_PREFERRED) == NULL))
   {
     PROCESS_WAIT_EVENT();
     if(etimer_expired(&periodic_timer))
@@ -539,7 +523,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
   }
 
   status = RESOLV_STATUS_UNCACHED;
-  while(status != RESOLV_STATUS_CACHED) {
+  while ((!is_rebooting) && (status != RESOLV_STATUS_CACHED)) {
     status = set_connection_address(&broker_addr);
 
     if(status == RESOLV_STATUS_RESOLVING) {
@@ -562,7 +546,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
   ctimer_set(&connection_timer, REPLY_TIMEOUT, connection_timer_callback, NULL);
   mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
   connection_state = MQTTSN_WAITING_CONNACK;
-  while (connection_retries < 11)
+  while ((!is_rebooting) && (connection_retries < 11))
   {
     PROCESS_WAIT_EVENT();
     if (ev == mqttsn_connack_event) {
@@ -585,19 +569,28 @@ PROCESS_THREAD(mqttsn_process, ev, data)
   ctimer_stop(&connection_timer);
   if (connection_state == MQTTSN_CONNECTED){
     is_connected = true;
-    set_red_led(RED_LED_CONNECTED);
-    set_green_led(GREEN_LED_NO_MESSAGE);
+    init_sensor_topics_array();
     process_start(&ctrl_subscription_process, 0);
-    etimer_set(&periodic_timer, 3*CLOCK_SECOND);
-    while(!etimer_expired(&periodic_timer))
-        PROCESS_WAIT_EVENT();
     process_start(&publish_process, 0);
     process_start(&inactivity_watchdog_process, NULL);
+    static uint8_t i = 0;
+    while ((!is_rebooting) && ((!are_sta_topics_registered) || (!is_cmd_topic_registered))) {
+       etimer_set(&et, 0.1 * CLOCK_SECOND);
+       PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
+       i++;
+       if (i >= 200) {
+          PRINTF("***** Taking too long to register topics...\n");
+          reboot_board();
+          break;
+       }
+    }
+    set_red_led(RED_LED_CONNECTED);
+    set_green_led(GREEN_LED_NO_MESSAGE);
     process_start(&rain_sensors_process, NULL);
     process_start(&moisture_sensor_process, NULL);
     process_start(&pluviometer_sensor_process, NULL);
     etimer_set(&et, 2*CLOCK_SECOND);
-    while(1)
+    while(!is_rebooting)
     {
       PROCESS_WAIT_EVENT();
       if(etimer_expired(&et)) {
@@ -606,11 +599,120 @@ PROCESS_THREAD(mqttsn_process, ev, data)
     }
   } else {
     PRINTF("Unable to connect!\n");
-    reset_board();
+    reboot_board();
   }
   PROCESS_END();
 }
 
+/********************************** WATCHDOG **********************************/
+
+/**
+ * Detects inactivity and call reboot_board() function.
+ */
+PROCESS_THREAD(inactivity_watchdog_process, ev, data)
+{
+  static struct etimer inactivity_timer;
+  PROCESS_BEGIN();
+  network_inactivity_timeout_reset = process_alloc_event();
+  etimer_set(&inactivity_timer, INACTIVITY_TIMEOUT);
+  while (!is_rebooting)
+  {
+    PROCESS_WAIT_EVENT();
+    if (ev == PROCESS_EVENT_TIMER) {
+        if (etimer_expired(&inactivity_timer)) {
+          reboot_board();
+        }
+    }
+    if (ev == network_inactivity_timeout_reset) {
+      etimer_restart(&inactivity_timer);
+    }
+  }
+  PROCESS_END();
+}
+
+/**
+ * Detects inactivity and call reboot_board() function.
+ */
+PROCESS_THREAD(reboot_process, ev, data)
+{
+   static struct etimer et;
+   PROCESS_BEGIN();
+   set_red_led(RED_LED_OFF_REBOOTING);
+   set_green_led(GREEN_LED_OFF_REBOOTING);
+   etimer_set(&et, CLOCK_SECOND * 1);
+   PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+   leds_off(LEDS_ALL);
+   PRINTF("***** Watchdog detected network inactivity/disconnection. REBOOTING board...\n\n\n");
+   static uint8_t i;
+   for (i = 0; i < 7; i++) {
+     leds_toggle(LEDS_ALL);
+     etimer_set(&et, CLOCK_SECOND * 0.8);
+     PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+     leds_toggle(LEDS_ALL);
+     etimer_set(&et, CLOCK_SECOND * 0.5);
+     PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+   }
+   loop_forever();
+   PROCESS_END();
+}
+
+/************************************ LEDS ************************************/
+
+/**
+ * Controls the green led (used to reporting MQTT messaging exchange).
+ */
+PROCESS_THREAD(green_led_process, ev, data)
+{
+   static struct etimer et;
+   PROCESS_BEGIN();
+   leds_off(LEDS_GREEN);
+   while (!is_rebooting) {
+      if (green_led_state == GREEN_LED_SENDING_MESSAGE) {
+         leds_off(LEDS_GREEN);
+      } else if (green_led_state == GREEN_LED_NO_MESSAGE) {
+         leds_on(LEDS_GREEN);
+      } else if(green_led_state == GREEN_LED_OFF) {
+         leds_off(LEDS_GREEN);
+      } else if (green_led_state == GREEN_LED_OFF_REBOOTING) {
+         leds_off(LEDS_GREEN);
+         break;
+      }
+      etimer_set(&et, CLOCK_SECOND * 0.1);
+      PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+   }
+   PROCESS_END();
+}
+
+/**
+ * Controls the red led (used to reporting MQTT connection status).
+ */
+PROCESS_THREAD(red_led_process, ev, data)
+{
+   static struct etimer et;
+   PROCESS_BEGIN();
+   leds_off(LEDS_RED);
+   while (!is_rebooting) {
+      if (red_led_state == RED_LED_CONNECTING) {
+         leds_toggle(LEDS_RED);
+      } else if (red_led_state == RED_LED_CONNECTED) {
+         leds_on(LEDS_RED);
+      } else if (red_led_state == RED_LED_OFF) {
+         leds_off(LEDS_RED);
+      } else if (red_led_state == RED_LED_OFF_REBOOTING) {
+         leds_off(LEDS_RED);
+         break;
+      }
+      etimer_set(&et, CLOCK_SECOND * 0.6);
+      PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+   }
+   PROCESS_END();
+}
+
+/********************************** SENSORS ***********************************/
+
+/**
+ * Controls the reading status of all reain sensors.
+ */
 PROCESS_THREAD(rain_sensors_process, ev, data)
 {
    static struct etimer et;
@@ -618,7 +720,7 @@ PROCESS_THREAD(rain_sensors_process, ev, data)
    PROCESS_BEGIN();
 
    configureGPIOSensors();
-   while (is_connected) {
+   while ((!is_rebooting) && (is_connected)) {
        static int valueRead[5];
        valueRead[0] = readGPIOSensor(RAIN_SENSOR_SURFACE_1);
        valueRead[1] = readGPIOSensor(RAIN_SENSOR_SURFACE_2);
@@ -628,27 +730,36 @@ PROCESS_THREAD(rain_sensors_process, ev, data)
 
        if ((!is_raining) && (valueRead[0] == RAIN_SENSOR_RAINING)) {
           is_raining = true;
-          publish_status(SENSOR_RAIN_SURFACE_1, RAIN_SENSOR_RAINING);
+          PRINTF("##### Rain started! (1)\n");
+          publish_status(TOPIC_RAIN_SENSOR_SURFACE_1, RAIN_SENSOR_RAINING);
        }
        if ((!is_raining) && (valueRead[1] == RAIN_SENSOR_RAINING)) {
+          PRINTF("##### Rain started! (2)\n");
           is_raining = true;
-          publish_status(SENSOR_RAIN_SURFACE_2, RAIN_SENSOR_RAINING);
+          publish_status(TOPIC_RAIN_SENSOR_SURFACE_2, RAIN_SENSOR_RAINING);
        }
        if ((!is_raining) && (valueRead[2] == RAIN_SENSOR_RAINING)) {
+          PRINTF("##### Rain started! (3)\n");
           is_raining = true;
-          publish_status(SENSOR_RAIN_SURFACE_3, RAIN_SENSOR_RAINING);
+          publish_status(TOPIC_RAIN_SENSOR_SURFACE_3, RAIN_SENSOR_RAINING);
        }
        if ((!is_raining) && (valueRead[3] == RAIN_SENSOR_RAINING)) {
+          PRINTF("##### Rain started! (4)\n");
           is_raining = true;
-          publish_status(SENSOR_RAIN_SURFACE_4, RAIN_SENSOR_RAINING);
+          publish_status(TOPIC_RAIN_SENSOR_SURFACE_4, RAIN_SENSOR_RAINING);
        }
 
-       if ((is_raining) && (valueRead[4] == RAIN_SENSOR_RAINING)) {
-          publish_status(SENSOR_RAIN_DRAIN_1, RAIN_SENSOR_RAINING);
+       if ((is_raining) && (!peak_delay_reported) && (valueRead[4] == RAIN_SENSOR_RAINING)) {
+          PRINTF("##### Drain reached!\n");
+          peak_delay_reported = true;
+          publish_status(TOPIC_RAIN_SENSOR_DRAIN, RAIN_SENSOR_RAINING);
        }
 
-       if ((valueRead[0] + valueRead[1] + valueRead[2] + valueRead[3]) == (RAIN_SENSOR_NOT_RAINING * 4)) {
+       if ((is_raining) &&
+                ((valueRead[0] + valueRead[1] + valueRead[2] + valueRead[3]) == (RAIN_SENSOR_NOT_RAINING * 4))) {
+          PRINTF("##### Rain ended.\n");
           is_raining = false;
+          peak_delay_reported = false;
        }
 
        etimer_set(&et, RAIN_SENSORS_READ_INTERVAL * CLOCK_SECOND);
@@ -658,16 +769,19 @@ PROCESS_THREAD(rain_sensors_process, ev, data)
    PROCESS_END();
 }
 
+/**
+ * Controls the reading status of the capacitive soil moisture sensor.
+ */
 PROCESS_THREAD(moisture_sensor_process, ev, data)
 {
    static struct etimer et;
 
    PROCESS_BEGIN();
 
-   while (is_connected) {
+   while ((!is_rebooting) && (is_connected)) {
       int sensorRead = readADSMoistureSensor();
       printf("##### Moisture sensor - value read: %i\n", sensorRead);
-      publish_status(SENSOR_CAPACITIVE_SOIL_MOISTURE, sensorRead);
+      publish_status(TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR, sensorRead);
       if (is_raining) {
          etimer_set(&et, (MOISTURE_SENSOR_READ_INTERVAL_RAIN  * CLOCK_SECOND));
        } else {
@@ -679,18 +793,21 @@ PROCESS_THREAD(moisture_sensor_process, ev, data)
    PROCESS_END();
 }
 
+/**
+ * Controls the reading status of the pluviometer sensor.
+ */
 PROCESS_THREAD(pluviometer_sensor_process, ev, data)
 {
    PROCESS_BEGIN();
    SENSORS_ACTIVATE(pluviometer_sensor);
 
-   while(is_connected) {
+   while ((!is_rebooting) && (is_connected)) {
        PROCESS_YIELD();
 
        if(ev == sensors_event) {
            if(data == &pluviometer_sensor) {
                printf("##### Pluviometer Sensor event received!\n");
-               publish_status(SENSOR_PLUVIOMETER, PLUVIOMETER_VALUE);
+               publish_status(TOPIC_PLUVIOMETER, PLUVIOMETER_VALUE);
            }
        }
    }
