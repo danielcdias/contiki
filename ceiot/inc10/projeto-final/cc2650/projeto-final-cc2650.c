@@ -62,7 +62,7 @@
 
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       danieldias.mooo.com // pksr.eletrica.eng.br
+#define UDP_CONNECTION_ADDR       danieldias.mooo.com
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
@@ -141,6 +141,8 @@ static bool is_cmd_topic_registered = false;
 static bool is_connected = false;
 static bool is_raining = false;
 static bool peak_delay_reported = false;
+
+static uint32_t pluviometer_counter = 0;
 
 static uint8_t green_led_state = GREEN_LED_OFF;
 static uint8_t red_led_state = RED_LED_CONNECTING;
@@ -252,6 +254,7 @@ regack_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr,
        if (incoming_regack.return_code == ACCEPTED) {
           pub_sensors_topic[i].topic_id = uip_htons(incoming_regack.topic_id);
           found = true;
+          break;
        }
      }
   }
@@ -319,12 +322,12 @@ static const struct mqtt_sn_callbacks mqtt_sn_call = {
   NULL
 };
 
-static void publish_status(const uint8_t topic_index, uint16_t data)
+static void publish_status(const uint8_t topic_index, uint32_t data)
 {
   set_green_led(GREEN_LED_SENDING_MESSAGE);
   static char buf[20];
   static uint8_t buf_len;
-  sprintf(buf, "%" PRIu16, data);
+  sprintf(buf, "%" PRIu32, data);
   PRINTF("Publishing at topic: %s -> msg: %s\n", pub_sensors_topic[topic_index].topic, buf);
   buf_len = strlen(buf);
   uint16_t result = mqtt_sn_send_publish(&mqtt_sn_c, pub_sensors_topic[topic_index].topic_id,
@@ -523,6 +526,7 @@ PROCESS_THREAD(mqttsn_process, ev, data)
   }
 
   status = RESOLV_STATUS_UNCACHED;
+  connection_retries = 0;
   while ((!is_rebooting) && (status != RESOLV_STATUS_CACHED)) {
     status = set_connection_address(&broker_addr);
 
@@ -532,6 +536,11 @@ PROCESS_THREAD(mqttsn_process, ev, data)
       PRINTF("Can't get connection address.\n");
       etimer_set(&periodic_timer, 2*CLOCK_SECOND);
       PROCESS_WAIT_EVENT();
+      connection_retries++;
+      if (connection_retries >= 15) {
+         reboot_board();
+         break;
+      }
     }
   }
 
@@ -695,7 +704,7 @@ PROCESS_THREAD(red_led_process, ev, data)
       if (red_led_state == RED_LED_CONNECTING) {
          leds_toggle(LEDS_RED);
       } else if (red_led_state == RED_LED_CONNECTED) {
-         leds_on(LEDS_RED);
+         leds_off(LEDS_RED);
       } else if (red_led_state == RED_LED_OFF) {
          leds_off(LEDS_RED);
       } else if (red_led_state == RED_LED_OFF_REBOOTING) {
@@ -728,25 +737,25 @@ PROCESS_THREAD(rain_sensors_process, ev, data)
        valueRead[3] = readGPIOSensor(RAIN_SENSOR_SURFACE_4);
        valueRead[4] = readGPIOSensor(RAIN_SENSOR_DRAIN);
 
-       if ((!is_raining) && (valueRead[0] == RAIN_SENSOR_RAINING)) {
+       // Not raining and, at least, 2 rain sensors reporting rain (1 = not raining)
+       if ((!is_raining) && ((valueRead[0] + valueRead[1] + valueRead[2] + valueRead[3]) <= 2)) {
           is_raining = true;
-          PRINTF("##### Rain started! (1)\n");
-          publish_status(TOPIC_RAIN_SENSOR_SURFACE_1, RAIN_SENSOR_RAINING);
-       }
-       if ((!is_raining) && (valueRead[1] == RAIN_SENSOR_RAINING)) {
-          PRINTF("##### Rain started! (2)\n");
-          is_raining = true;
-          publish_status(TOPIC_RAIN_SENSOR_SURFACE_2, RAIN_SENSOR_RAINING);
-       }
-       if ((!is_raining) && (valueRead[2] == RAIN_SENSOR_RAINING)) {
-          PRINTF("##### Rain started! (3)\n");
-          is_raining = true;
-          publish_status(TOPIC_RAIN_SENSOR_SURFACE_3, RAIN_SENSOR_RAINING);
-       }
-       if ((!is_raining) && (valueRead[3] == RAIN_SENSOR_RAINING)) {
-          PRINTF("##### Rain started! (4)\n");
-          is_raining = true;
-          publish_status(TOPIC_RAIN_SENSOR_SURFACE_4, RAIN_SENSOR_RAINING);
+          if (valueRead[0] == RAIN_SENSOR_RAINING) {
+             PRINTF("##### Rain started! (1)\n");
+             publish_status(TOPIC_RAIN_SENSOR_SURFACE_1, RAIN_SENSOR_RAINING);
+          }
+          if (valueRead[1] == RAIN_SENSOR_RAINING) {
+             PRINTF("##### Rain started! (2)\n");
+             publish_status(TOPIC_RAIN_SENSOR_SURFACE_2, RAIN_SENSOR_RAINING);
+          }
+          if (valueRead[2] == RAIN_SENSOR_RAINING) {
+             PRINTF("##### Rain started! (3)\n");
+             publish_status(TOPIC_RAIN_SENSOR_SURFACE_3, RAIN_SENSOR_RAINING);
+          }
+          if (valueRead[3] == RAIN_SENSOR_RAINING) {
+             PRINTF("##### Rain started! (4)\n");
+             publish_status(TOPIC_RAIN_SENSOR_SURFACE_4, RAIN_SENSOR_RAINING);
+          }
        }
 
        if ((is_raining) && (!peak_delay_reported) && (valueRead[4] == RAIN_SENSOR_RAINING)) {
@@ -755,10 +764,12 @@ PROCESS_THREAD(rain_sensors_process, ev, data)
           publish_status(TOPIC_RAIN_SENSOR_DRAIN, RAIN_SENSOR_RAINING);
        }
 
+       // Raining and, at least, 3 rain sensors reporting not raining (1 = not raining)
        if ((is_raining) &&
-                ((valueRead[0] + valueRead[1] + valueRead[2] + valueRead[3]) == (RAIN_SENSOR_NOT_RAINING * 4))) {
+                ((valueRead[0] + valueRead[1] + valueRead[2] + valueRead[3]) >= 3)) {
           PRINTF("##### Rain ended.\n");
           is_raining = false;
+          pluviometer_counter = 0;
           peak_delay_reported = false;
        }
 
@@ -807,7 +818,8 @@ PROCESS_THREAD(pluviometer_sensor_process, ev, data)
        if(ev == sensors_event) {
            if(data == &pluviometer_sensor) {
                printf("##### Pluviometer Sensor event received!\n");
-               publish_status(TOPIC_PLUVIOMETER, PLUVIOMETER_VALUE);
+               pluviometer_counter++;
+               publish_status(TOPIC_PLUVIOMETER, pluviometer_counter);
            }
        }
    }

@@ -1,13 +1,14 @@
 import logging
 import struct
 
+from django.core.mail import EmailMessage
 from threading import Thread
 
 import paho.mqtt.client as mqtt
 
 from model.models import ControlBoard, SensorReadEvent
 
-MQTT_SERVER_HOST = "2804:7f4:3b80:d4af:ccdc:fc4f:a892:6ee"
+MQTT_SERVER_HOST = "danieldias.mooo.com"
 MQTT_SERVER_PORT = 1883
 MQTT_SERVER_TIMEOUT = 60
 CLIENT_ID = "TV-CWB-EstudoModelo"
@@ -33,6 +34,10 @@ class MQTTBridge:
 
     @staticmethod
     def on_disconnect(client, userdata, rc):
+        # TODO Criar timer para enviar um e-mail (e só um email) de erro caso ocorra desconexão sem reconexão em
+        # determinado intervalo de tempo
+        # Ver implementação de timer em:
+        # https://stackoverflow.com/questions/12435211/python-threading-timer-repeat-function-every-n-seconds
         logger.warning("Connection finished with {}, {}, {}.".format(client, userdata, rc))
 
     @staticmethod
@@ -87,6 +92,9 @@ class MQTTBridge:
             self.is_running = True
             self.mqttc_cli.loop_start()
         except (ConnectionRefusedError, TimeoutError) as ex:
+            email = EmailMessage('*** ERRO *** Terraço Verde IoT', 'Não foi possível conectar servidor ao broker MQTT.',
+                                 to=['daniel.dias@gmail.com'])
+            email.send()
             logger.error("Cannot connect to MQTT broker! Exception: {}".format(ex))
 
     def send_command(self, board: ControlBoard, value: int):
