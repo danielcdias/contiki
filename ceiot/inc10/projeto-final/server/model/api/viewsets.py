@@ -1,12 +1,21 @@
 from rest_framework.filters import SearchFilter
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
-from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
+from rest_framework.viewsets import ReadOnlyModelViewSet
 
 from config.expiring_token import ExpiringTokenAuthentication
 from model.api.serializers import BoardVendorSerializer, BoardModelSerializer, ControlBoardSerializer, \
-    SensorTypeSerializer, SensorSerializer, SensorReadEventSerializer, NotificationUserSerializer, ErrorReportSerializer
+    SensorTypeSerializer, SensorSerializer, SensorReadEventSerializer, NotificationUserSerializer, \
+    ErrorReportSerializer, MQTTConnectionSerializer, ControlBoardEventSerializer
 from model.models import BoardVendor, BoardModel, ControlBoard, SensorType, Sensor, SensorReadEvent, NotificationUser, \
-    ErrorReport
+    ErrorReport, MQTTConnection, ControlBoardEvent
+
+
+class MQTTConnectionViewSet(ReadOnlyModelViewSet):
+    queryset = MQTTConnection.objects.all()
+    serializer_class = MQTTConnectionSerializer
+    filter_backends = (SearchFilter,)
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    authentication_classes = (ExpiringTokenAuthentication,)
 
 
 class BoardVendorViewSet(ReadOnlyModelViewSet):
@@ -33,6 +42,14 @@ class ControlBoardViewSet(ReadOnlyModelViewSet):
     authentication_classes = (ExpiringTokenAuthentication,)
 
 
+class ControlBoardEventViewSet(ReadOnlyModelViewSet):
+    queryset = ControlBoardEvent.objects.all()
+    serializer_class = ControlBoardEventSerializer
+    filter_backends = (SearchFilter,)
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    authentication_classes = (ExpiringTokenAuthentication,)
+
+
 class SensorTypeViewSet(ReadOnlyModelViewSet):
     queryset = SensorType.objects.all()
     serializer_class = SensorTypeSerializer
@@ -53,6 +70,7 @@ class SensorReadEventViewSet(ReadOnlyModelViewSet):
     queryset = SensorReadEvent.objects.all()
     serializer_class = SensorReadEventSerializer
     filter_backends = (SearchFilter,)
+    search_fields = ('sensor__sensor_id', 'timestamp')
     permission_classes = (IsAuthenticatedOrReadOnly,)
     authentication_classes = (ExpiringTokenAuthentication,)
 

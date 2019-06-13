@@ -1,25 +1,41 @@
 import logging
-import struct
 
 from django.core.mail import EmailMessage
-from threading import Thread
+from threading import Thread, Event
 
 import paho.mqtt.client as mqtt
 
-from model.models import ControlBoard, SensorReadEvent
+from model.models import ControlBoard, MQTTConnection, ConnectionStatus
 
-MQTT_SERVER_HOST = "danieldias.mooo.com"
-MQTT_SERVER_PORT = 1883
-MQTT_SERVER_TIMEOUT = 60
+# MQTT_SERVER_HOST = "danieldias.mooo.com"
+# MQTT_SERVER_PORT = 1883
+# MQTT_SERVER_TIMEOUT = 60
+MQTT_DISCONNECTION_EMAIL_NOTIFY_TIMEOUT = 120
 CLIENT_ID = "TV-CWB-EstudoModelo"
 
-MQTT_TOPIC_STATUS = "/tvcwb/modelo/sta/#"
-MQTT_TOPIC_COMMAND = "/tvcwb/modelo/cmd/"
+MQTT_TOPIC_STATUS = "/tvcwb1299/mmm/sta/#"
+MQTT_TOPIC_COMMAND = "/tvcwb1299/mmm/cmd/"
 
 LOG_OUTPUT_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 LOG_DATETIME_FORMAT = "%Y/%m/%d %H:%M:%S"
 
 logger = logging.getLogger("tvcwb.mqtt_client")
+
+stop_timer_flag = Event()  # Flag to stop timer if reconnection occurs before MQTT_DISCONNECTION_EMAIL_NOTIFY_TIMEOUT
+
+
+class DisconnectionTimer(Thread):
+    def __init__(self, event):
+        Thread.__init__(self)
+        self.stopped = event
+        self.sent = False
+
+    def run(self):
+        while (not self.stopped.wait(MQTT_DISCONNECTION_EMAIL_NOTIFY_TIMEOUT)) and (not self.sent):
+            email = EmailMessage('*** ERRO *** Terraço Verde IoT', 'Desconexão ocorrida com o broker MQTT.',
+                                 to=['daniel.dias@gmail.com'])
+            email.send()
+            self.sent = True
 
 
 class MQTTBridge:
@@ -30,39 +46,46 @@ class MQTTBridge:
 
     @staticmethod
     def on_connect(client, userdata, flags, rc):
+        stop_timer_flag.set()
         logger.info("Connection started with {}, {}, {}, {}.".format(client, userdata, flags, rc))
+        MQTTBridge.__update_connection_status(ConnectionStatus.CONNECTED)
 
     @staticmethod
     def on_disconnect(client, userdata, rc):
-        # TODO Criar timer para enviar um e-mail (e só um email) de erro caso ocorra desconexão sem reconexão em
-        # determinado intervalo de tempo
-        # Ver implementação de timer em:
-        # https://stackoverflow.com/questions/12435211/python-threading-timer-repeat-function-every-n-seconds
         logger.warning("Connection finished with {}, {}, {}.".format(client, userdata, rc))
+        MQTTBridge.__update_connection_status(ConnectionStatus.DISCONNECTED)
+        stop_timer_flag.clear()
+        thread = DisconnectionTimer(stop_timer_flag)
+        thread.start()
 
     @staticmethod
     def on_message(client, userdata, message):
         logger.debug("Message received from {}, {}, message: {}, {}, {}, {}.".format(client, userdata, message.topic,
                                                                                      message.payload, message.qos,
                                                                                      message.retain))
-        mac_end = message.topic[-8:-6] + ":" + message.topic[-6:-4]
-        sensor_id = message.topic[-3:]
+        mac_end = (message.topic[-8:-6] + ":" + message.topic[-6:-4]
+                   if len(message.topic) > 24 else message.topic[-4:-2] + ":" + message.topic[-2:])
+        sensor_id = (message.topic[-3:] if len(message.topic) > 24 else None)
         query = ControlBoard.objects.filter(mac_address__endswith=mac_end)
         if query:
             board = query[0]
-            subquery = board.sensor_set.all().filter(sensor_id=sensor_id)
-            if subquery:
-                sensor = subquery[0]
-                value_str = message.payload.decode()
-                try:
-                    value = float(value_str)
-                    sensor_read_event = sensor.sensorreadevent_set.create(value_read=value)
-                    sensor_read_event.save()
-                except ValueError:
-                    logger.warning("Value received is not a valid float: {}".format(value_str))
+            value_str = message.payload.decode()
+            if sensor_id:
+                subquery = board.sensor_set.all().filter(sensor_id=sensor_id)
+                if subquery:
+                    sensor = subquery[0]
+                    try:
+                        value = float(value_str)
+                        sensor_read_event = sensor.sensorreadevent_set.create(value_read=value)
+                        sensor_read_event.save()
+                    except ValueError:
+                        logger.warning("Value received is not a valid float: {}".format(value_str))
+                else:
+                    logger.warning(
+                        "No sensor was found with ID {} for the control board {}.".format(sensor_id, board.nickname))
             else:
-                logger.warning(
-                    "No sensor was found with ID {} for the control board{}.".format(sensor_id, board.nickname))
+                board_event_received = board.controlboardevent_set.create(status_received=value_str[:10])
+                board_event_received.save()
         else:
             logger.warning("No control board was found with mac address ending with {}.".format(mac_end))
 
@@ -81,21 +104,29 @@ class MQTTBridge:
         return self.is_running
 
     def start_bridge(self):
-        try:
-            self.mqttc_cli.on_connect = self.on_connect
-            self.mqttc_cli.on_subscribe = self.on_subscribe
-            self.mqttc_cli.on_publish = self.on_publish
-            self.mqttc_cli.on_message = self.on_message
-            self.mqttc_cli.on_log = self.on_log
-            self.mqttc_cli.connect(MQTT_SERVER_HOST, MQTT_SERVER_PORT, MQTT_SERVER_TIMEOUT)
-            self.mqttc_cli.subscribe(MQTT_TOPIC_STATUS, 0)
-            self.is_running = True
-            self.mqttc_cli.loop_start()
-        except (ConnectionRefusedError, TimeoutError) as ex:
-            email = EmailMessage('*** ERRO *** Terraço Verde IoT', 'Não foi possível conectar servidor ao broker MQTT.',
-                                 to=['daniel.dias@gmail.com'])
-            email.send()
-            logger.error("Cannot connect to MQTT broker! Exception: {}".format(ex))
+        connection_info = MQTTConnection.objects.get(id=1)
+        if connection_info:
+            try:
+                self.mqttc_cli.on_connect = self.on_connect
+                self.mqttc_cli.on_subscribe = self.on_subscribe
+                self.mqttc_cli.on_publish = self.on_publish
+                self.mqttc_cli.on_message = self.on_message
+                self.mqttc_cli.on_disconnect = self.on_disconnect
+                self.mqttc_cli.on_log = self.on_log
+                self.mqttc_cli.reconnect_delay_set(min_delay=1, max_delay=30)
+                self.mqttc_cli.connect(connection_info.hostname, connection_info.port,
+                                       connection_info.connection_timeout)
+                self.mqttc_cli.subscribe(MQTT_TOPIC_STATUS, 0)
+                self.is_running = True
+                self.mqttc_cli.loop_start()
+            except (ConnectionRefusedError, TimeoutError) as ex:
+                email = EmailMessage('*** ERRO *** Terraço Verde IoT',
+                                     'Não foi possível conectar servidor ao broker MQTT.',
+                                     to=['daniel.dias@gmail.com'])
+                email.send()
+                logger.error("Cannot connect to MQTT broker! Exception: {}".format(ex))
+        else:
+            logger.error("No connection info found!")
 
     def send_command(self, board: ControlBoard, value: int):
         result = False
@@ -109,10 +140,24 @@ class MQTTBridge:
             logger.exception("Cannot publish to command topic! Exception: {}".format(ex))
         return result
 
+    @staticmethod
+    def __update_connection_status(status: int):
+        if (status == ConnectionStatus.CONNECTED) or (status == ConnectionStatus.DISCONNECTED):
+            connection_info = MQTTConnection.objects.get(id=1)
+            if connection_info:
+                connection_status = connection_info.connectionstatus_set.create(host_status=status)
+                connection_status.save()
+            else:
+                logger.error("No connection info found!")
+        else:
+            logger.error("Invalid value for connection status.")
+            raise ValueError("Invalid value for connection status.")
+
 
 bridge = MQTTBridge()
 
 
 def run():
-    thread = Thread(target=bridge.start_bridge)
-    thread.start()
+    if not bridge.is_running:
+        thread = Thread(target=bridge.start_bridge)
+        thread.start()

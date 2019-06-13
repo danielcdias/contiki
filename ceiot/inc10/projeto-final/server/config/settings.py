@@ -121,44 +121,45 @@ USE_TZ = True
 STATIC_URL = '/static/'
 
 REST_FRAMEWORK = {
-    'DEFAULT_FILTER_BACKENDS': ('django_filters.rest_framework.DjangoFilterBackend',)
+    'DEFAULT_FILTER_BACKENDS': ('django_filters.rest_framework.DjangoFilterBackend',),
+    'DEFAULT_RENDERER_CLASSES': ('rest_framework.renderers.JSONRenderer',),
 }
 
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'standard': {
-            'format': "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)s] %(message)s",
-            'datefmt': "%Y-%m-%d %H:%M:%S"
-        },
+'version': 1,
+'disable_existing_loggers': False,
+'formatters': {
+    'standard': {
+        'format': "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)s] %(message)s",
+        'datefmt': "%Y-%m-%d %H:%M:%S"
     },
-    'handlers': {
-        'file': {
-            'level': 'DEBUG',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': 'logs/tv-cwb-django.log',
-            'maxBytes': 1024 * 1024 * 5,  # 5 MB
-            'backupCount': 5,
-            'formatter': 'standard',
-        },
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'standard',
-        },
+},
+'handlers': {
+    'file': {
+        'level': 'DEBUG',
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': 'logs/tv-cwb-django.log',
+        'maxBytes': 1024 * 1024 * 5,  # 5 MB
+        'backupCount': 5,
+        'formatter': 'standard',
     },
-    'loggers': {
-        'django': {
-            'handlers': ['file', 'console', ],
-            'level': 'INFO',
-            'propagate': True,
-        },
-        'tvcwb': {
-            'handlers': ['file', 'console', ],
-            'level': 'DEBUG',
-            'propagate': True,
-        },
+    'console': {
+        'class': 'logging.StreamHandler',
+        'formatter': 'standard',
     },
+},
+'loggers': {
+    'django': {
+        'handlers': ['file', 'console', ],
+        'level': 'INFO',
+        'propagate': True,
+    },
+    'tvcwb': {
+        'handlers': ['file', 'console', ],
+        'level': 'DEBUG',
+        'propagate': True,
+    },
+},
 }
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    {% load extras %}
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="{% static 'model/w3c-style.css' %}">
+    <title>Terraço Verde CWB - MMM</title>
+</head>
+<body>
+<div class="w3-container w3-margin">
+    <h2>Terraço Verde - Comparação Modelo Intensivo Vs Extensivo</h2>
+    <br/><br/>
+    {% for host in hosts_list %}
+    <h3>Host: {{host.hostname}}:{{host.port}}</h3>
+    <h4>Status conexão MQTT: <img src="{% static 'model/images/' %}{{host.last_status|host_status_icon}}"> {{host.last_status|host_status_str}}</h4>
+    {% endfor %}
+</div>
+</body>
+</html>

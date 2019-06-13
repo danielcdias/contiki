@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import BoardVendor, BoardModel, ControlBoard, SensorType, Sensor, NotificationUser
+from .models import MQTTConnection, BoardVendor, BoardModel, ControlBoard, SensorType, Sensor, NotificationUser
+
+
+class MQTTConnectionAdmin(admin.ModelAdmin):
+    model = MQTTConnection
+    extra = 0
+    ordering = ('hostname',)
 
 
 class BoardVendorAdmin(admin.ModelAdmin):
@@ -39,6 +45,7 @@ class NotificationUserAdmin(admin.ModelAdmin):
     ordering = ('user__username',)
 
 
+admin.site.register(MQTTConnection, MQTTConnectionAdmin)
 admin.site.register(BoardVendor, BoardVendorAdmin)
 admin.site.register(BoardModel, BoardModelAdmin)
 admin.site.register(ControlBoard, ControlBoardAdmin)
