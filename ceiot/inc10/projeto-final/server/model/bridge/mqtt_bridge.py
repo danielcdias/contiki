@@ -1,4 +1,5 @@
 import logging
+import time
 
 from django.core.mail import EmailMessage
 from threading import Thread, Event
@@ -104,29 +105,41 @@ class MQTTBridge:
         return self.is_running
 
     def start_bridge(self):
-        connection_info = MQTTConnection.objects.get(id=1)
-        if connection_info:
-            try:
-                self.mqttc_cli.on_connect = self.on_connect
-                self.mqttc_cli.on_subscribe = self.on_subscribe
-                self.mqttc_cli.on_publish = self.on_publish
-                self.mqttc_cli.on_message = self.on_message
-                self.mqttc_cli.on_disconnect = self.on_disconnect
-                self.mqttc_cli.on_log = self.on_log
-                self.mqttc_cli.reconnect_delay_set(min_delay=1, max_delay=30)
-                self.mqttc_cli.connect(connection_info.hostname, connection_info.port,
-                                       connection_info.connection_timeout)
-                self.mqttc_cli.subscribe(MQTT_TOPIC_STATUS, 0)
-                self.is_running = True
-                self.mqttc_cli.loop_start()
-            except (ConnectionRefusedError, TimeoutError) as ex:
-                email = EmailMessage('*** ERRO *** Terraço Verde IoT',
-                                     'Não foi possível conectar servidor ao broker MQTT.',
-                                     to=['daniel.dias@gmail.com'])
-                email.send()
-                logger.error("Cannot connect to MQTT broker! Exception: {}".format(ex))
-        else:
-            logger.error("No connection info found!")
+        connected = False
+        email_sent = False
+        while True:
+            if not connected:
+                MQTTBridge.__update_connection_status(ConnectionStatus.DISCONNECTED)
+                connection_info = MQTTConnection.objects.get(id=1)
+                if connection_info:
+                    try:
+                        self.mqttc_cli.on_connect = self.on_connect
+                        self.mqttc_cli.on_subscribe = self.on_subscribe
+                        self.mqttc_cli.on_publish = self.on_publish
+                        self.mqttc_cli.on_message = self.on_message
+                        self.mqttc_cli.on_disconnect = self.on_disconnect
+                        self.mqttc_cli.on_log = self.on_log
+                        self.mqttc_cli.reconnect_delay_set(min_delay=1, max_delay=30)
+                        self.mqttc_cli.connect(connection_info.hostname, connection_info.port,
+                                               connection_info.connection_timeout)
+                        self.mqttc_cli.subscribe(MQTT_TOPIC_STATUS, 0)
+                        self.is_running = True
+                        connected = True
+                        email_sent = False
+                        self.mqttc_cli.loop_start()
+                    except (ConnectionRefusedError, TimeoutError) as ex:
+                        if not email_sent:
+                            email = EmailMessage('*** ERRO *** Terraço Verde IoT',
+                                                 'Não foi possível conectar servidor ao broker MQTT.',
+                                                 to=['daniel.dias@gmail.com'])
+                            email.send()
+                            email_sent = True
+                        logger.error("Cannot connect to MQTT broker! Exception: {}".format(ex))
+                else:
+                    # TODO Criar processo de reconexão
+                    connected = False
+                    logger.error("No connection info found!")
+            time.sleep(5)
 
     def send_command(self, board: ControlBoard, value: int):
         result = False

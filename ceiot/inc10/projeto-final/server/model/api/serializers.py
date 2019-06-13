@@ -2,13 +2,21 @@ from django.contrib.auth.models import User
 from rest_framework.serializers import ModelSerializer, CharField
 
 from model.models import BoardVendor, BoardModel, ControlBoard, SensorType, Sensor, SensorReadEvent, NotificationUser, \
-    ErrorReport, ControlBoardEvent, MQTTConnection
+    ErrorReport, ControlBoardEvent, MQTTConnection, ConnectionStatus
 
 
 class MQTTConnectionSerializer(ModelSerializer):
     class Meta:
         model = MQTTConnection
         fields = ('id', 'hostname', 'port', 'last_status')
+
+
+class ConnectionStatusSerializer(ModelSerializer):
+    hostname = CharField(source='host_connection.hostname', read_only=True)
+
+    class Meta:
+        model = ConnectionStatus
+        fields = ('id', 'timestamp', 'host_status', 'hostname')
 
 
 class BoardVendorSerializer(ModelSerializer):
@@ -34,11 +42,12 @@ class ControlBoardSerializer(ModelSerializer):
 
 
 class ControlBoardEventSerializer(ModelSerializer):
+    nickname = CharField(source='control_board.nickname', read_only=True)
     short_mac_id = CharField(source='control_board.short_mac_id', read_only=True)
 
     class Meta:
         model = ControlBoardEvent
-        fields = ('id', 'timestamp', 'status_received', 'short_mac_id')
+        fields = ('id', 'timestamp', 'status_received', 'short_mac_id', 'nickname')
 
 
 class SensorTypeSerializer(ModelSerializer):

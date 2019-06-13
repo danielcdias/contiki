@@ -8,11 +8,12 @@ from rest_framework import routers
 from config.expiring_token import obtain_expiring_auth_token
 from model.api.viewsets import BoardVendorViewSet, BoardModelViewSet, ControlBoardViewSet, SensorTypeViewSet, \
     SensorViewSet, SensorReadEventViewSet, NotificationUserViewSet, ErrorReportViewSet, MQTTConnectionViewSet, \
-    ControlBoardEventViewSet
+    ControlBoardEventViewSet, ConnectionStatusViewSet
 from model.bridge import mqtt_bridge
 
 router = routers.DefaultRouter()
 router.register(r'mqttconnections', MQTTConnectionViewSet, basename="MQTTConnection")
+router.register(r'connectionstatus', ConnectionStatusViewSet, basename="ConnectionStatus")
 router.register(r'boardvendors', BoardVendorViewSet, basename="BoardVendor")
 router.register(r'boardmodels', BoardModelViewSet, basename="BoardModel")
 router.register(r'controlboards', ControlBoardViewSet, basename="ControlBoard")
