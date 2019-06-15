@@ -115,15 +115,32 @@ class SensorType(models.Model):
 
 
 class Sensor(models.Model):
+    ROLE_RAIN_DETECTION_SURFACE = 0
+    ROLE_RAIN_DETECTION_DRAIN = 1
+    ROLE_RAIN_ABSORPTION = 2
+    ROLE_RAIN_AMOUNT = 3
+
+    SensorRole = (
+        (ROLE_RAIN_DETECTION_SURFACE, "Detecção de chuva na supercífie"),
+        (ROLE_RAIN_DETECTION_DRAIN, "Detecção de chuva no ralo"),
+        (ROLE_RAIN_ABSORPTION, "Absorção de chuva"),
+        (ROLE_RAIN_AMOUNT, "Quantidade de chuva"),
+    )
+
     sensor_id = models.CharField(max_length=10, verbose_name="ID")
     description = models.CharField(max_length=100, verbose_name="Description")
     sensor_type = models.ForeignKey(SensorType, on_delete=models.CASCADE, verbose_name="Type")
+    sensor_role = models.IntegerField(verbose_name='Sensor role', choices=SensorRole)
     control_board = models.ForeignKey(ControlBoard, on_delete=models.CASCADE, verbose_name="Control board")
 
     objects = models.Manager()
 
+    @property
+    def sensor_role_description(self):
+        return "{}".format(self.SensorRole[self.sensor_role][1])
+
     def __str__(self):
-        return "{} - {}".format(self.control_board.nickname, self.sensor_id)
+        return "{} - {} - {}".format(self.control_board.nickname, self.sensor_id, self.sensor_role_description)
 
 
 class SensorReadEvent(models.Model):

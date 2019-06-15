@@ -5,6 +5,7 @@ from django.http import StreamingHttpResponse
 from django.views import generic
 
 from .models import MQTTConnection, SensorReadEvent
+from model import data_analyzer as analyzer
 
 
 class IndexView(generic.ListView):
@@ -31,12 +32,18 @@ def get_sensors_read_event_in_csv(request):
         rows.append(
             [sensor_read.sensor.control_board.nickname, sensor_read.sensor.sensor_id, dt, sensor_read.value_read])
 
-    pseudo_buffer = Echo()
-    writer = csv.writer(pseudo_buffer, delimiter=',', quotechar='"', quoting=csv.QUOTE_ALL)
-    response = StreamingHttpResponse((writer.writerow(row) for row in rows),
-                                     content_type="text/csv")
-    response['Content-Disposition'] = 'attachment; filename="senso_read_events.csv"'
     return __generate_csv('senso_read_events.csv', rows, request)
+
+
+def get_peak_delay_in_csv(request):
+    start_date = request.GET.get('start') if request.GET.get('start') else None
+    end_date = request.GET.get('end') if request.GET.get('end') else None
+    results = analyzer.get_peak_delay(start_date=start_date, end_date=end_date)
+    rows = [['Placa Controladora', 'Data/Hora Inicio Chuva', 'Data/Hora Fim Chuva', 'Diferença']]
+    for result in results:
+        rows.append([result['board'], result['start_datetime'], result['end_datetime'], result['diff']])
+
+    return __generate_csv('atraso_de_pico.csv', rows, request)
 
 
 def __generate_csv(csv_filname: str, rows, request):
