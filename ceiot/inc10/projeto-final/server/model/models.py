@@ -74,19 +74,32 @@ class BoardModel(models.Model):
 
 
 class ControlBoard(models.Model):
+    PROTOTYPE_INTENSIVE_SIDE = 0
+    PROTOTYPE_EXTENSIVE_SIDE = 1
+
+    PrototypeSide = (
+        (PROTOTYPE_INTENSIVE_SIDE, "Modelo Intensivo"),
+        (PROTOTYPE_INTENSIVE_SIDE, "Modelo Extensivo"),
+    )
+
     nickname = models.CharField(max_length=50, unique=True, verbose_name="Nickname")
     mac_address = models.CharField(max_length=17, verbose_name='MAC address', unique=True,
                                    validators=[check_mac_address])
+    prototype_side = models.IntegerField(verbose_name='Prototype side', choices=PrototypeSide)
     board_model = models.ForeignKey(BoardModel, on_delete=models.CASCADE, verbose_name="Model")
 
     objects = models.Manager()
 
-    def __str__(self):
-        return self.nickname
+    @property
+    def prototype_side_description(self):
+        return "{}".format(self.PrototypeSide[self.prototype_side][1])
 
     @property
     def short_mac_id(self):
         return self.mac_address[-5:-3] + self.mac_address[-2:]
+
+    def __str__(self):
+        return "{} - {}".format(self.nickname, self.prototype_side_description)
 
 
 class ControlBoardEvent(models.Model):
