@@ -36,12 +36,13 @@ def get_sensors_read_event_in_csv(request):
 
 
 def get_peak_delay_in_csv(request):
-    start_date = request.GET.get('start') if request.GET.get('start') else None
-    end_date = request.GET.get('end') if request.GET.get('end') else None
-    results = analyzer.get_peak_delay(start_date=start_date, end_date=end_date)
-    rows = [['Placa Controladora', 'Data/Hora Inicio Chuva', 'Data/Hora Fim Chuva', 'Diferença']]
+    start_date_filter = request.GET.get('start') if request.GET.get('start') else None
+    end_date_filter = request.GET.get('end') if request.GET.get('end') else None
+    results = analyzer.get_peak_delay(start_date_filter=start_date_filter, end_date_filter=end_date_filter)
+    rows = [['Modelo', 'Data/Hora Detecçao Superfície', 'Data/Hora Detecção Ralo', 'Diferença']]
     for result in results:
-        rows.append([result['board'], result['start_datetime'], result['end_datetime'], result['diff']])
+        rows.append([result['prototype_side'], result['surface_rain_timestamp'], result['drain_rain_timestamp'],
+                     result['diff']])
 
     return __generate_csv('atraso_de_pico.csv', rows, request)
 
