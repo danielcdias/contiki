@@ -140,7 +140,7 @@ LOGGING = {
         'class': 'logging.handlers.RotatingFileHandler',
         'filename': 'logs/tv-cwb-django.log',
         'maxBytes': 1024 * 1024 * 5,  # 5 MB
-        'backupCount': 5,
+        'backupCount': 50,
         'formatter': 'standard',
     },
     'console': {

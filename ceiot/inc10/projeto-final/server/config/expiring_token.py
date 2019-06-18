@@ -6,6 +6,7 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.response import Response
+from django.utils.translation import ugettext_lazy as _
 
 
 class ExpiringTokenAuthentication(TokenAuthentication):
@@ -36,12 +37,21 @@ class ObtainExpiringAuthToken(ObtainAuthToken):
         serializer = self.serializer_class(data=request.data,
                                            context={'request': request})
         if serializer.is_valid(raise_exception=True):
-            token, created = Token.objects.get_or_create(user=serializer.validated_data['user'])
+            tokens = Token.objects.filter(user=serializer.validated_data['user'])
+            has_valid_token = False
+            utc_now = datetime.utcnow()
+            utc_now = utc_now.replace(tzinfo=pytz.utc)
+            token = None
+            for t in tokens:
+                if t.created < utc_now - timedelta(days=1):
+                    t.delete()
+                else:
+                    token = t
+                    has_valid_token = True
+                    break
 
-            if not created:
-                # update the created time of the token to keep it valid
-                token.created = datetime.utcnow()
-                token.save()
+            if not has_valid_token:
+                token = Token.objects.create(user=serializer.validated_data['user'])
 
             return Response({'token': token.key})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -5,9 +5,9 @@ from rest_framework.viewsets import ReadOnlyModelViewSet
 from config.expiring_token import ExpiringTokenAuthentication
 from model.api.serializers import BoardVendorSerializer, BoardModelSerializer, ControlBoardSerializer, \
     SensorTypeSerializer, SensorSerializer, SensorReadEventSerializer, NotificationUserSerializer, \
-    ErrorReportSerializer, MQTTConnectionSerializer, ControlBoardEventSerializer, ConnectionStatusSerializer
+    MQTTConnectionSerializer, ControlBoardEventSerializer, ConnectionStatusSerializer
 from model.models import BoardVendor, BoardModel, ControlBoard, SensorType, Sensor, SensorReadEvent, NotificationUser, \
-    ErrorReport, MQTTConnection, ControlBoardEvent, ConnectionStatus
+    MQTTConnection, ControlBoardEvent, ConnectionStatus
 
 
 class MQTTConnectionViewSet(ReadOnlyModelViewSet):
@@ -90,14 +90,6 @@ class SensorReadEventViewSet(ReadOnlyModelViewSet):
 class NotificationUserViewSet(ReadOnlyModelViewSet):
     queryset = NotificationUser.objects.all()
     serializer_class = NotificationUserSerializer
-    filter_backends = (SearchFilter,)
-    permission_classes = (IsAuthenticated,)
-    authentication_classes = (ExpiringTokenAuthentication,)
-
-
-class ErrorReportViewSet(ReadOnlyModelViewSet):
-    queryset = ErrorReport.objects.all()
-    serializer_class = ErrorReportSerializer
     filter_backends = (SearchFilter,)
     permission_classes = (IsAuthenticated,)
     authentication_classes = (ExpiringTokenAuthentication,)

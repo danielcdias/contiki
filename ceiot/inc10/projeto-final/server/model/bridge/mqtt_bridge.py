@@ -136,7 +136,6 @@ class MQTTBridge:
                             email_sent = True
                         logger.error("Cannot connect to MQTT broker! Exception: {}".format(ex))
                 else:
-                    # TODO Criar processo de reconexão
                     connected = False
                     logger.error("No connection info found!")
             time.sleep(5)

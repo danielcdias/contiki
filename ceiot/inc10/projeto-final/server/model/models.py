@@ -79,7 +79,7 @@ class ControlBoard(models.Model):
 
     PrototypeSide = (
         (PROTOTYPE_INTENSIVE_SIDE, "Modelo Intensivo"),
-        (PROTOTYPE_INTENSIVE_SIDE, "Modelo Extensivo"),
+        (PROTOTYPE_EXTENSIVE_SIDE, "Modelo Extensivo"),
     )
 
     nickname = models.CharField(max_length=50, unique=True, verbose_name="Nickname")
@@ -173,27 +173,3 @@ class NotificationUser(models.Model):
     notify_errors = models.BooleanField(default=False, verbose_name="Send errors notifications")
 
     objects = models.Manager()
-
-
-class ErrorReport(models.Model):
-    ERROR_MQTT_CONNECTION = 0
-    ERROR_DATABASE_CONNECTION = 1
-
-    ErrorTypes = (
-        (ERROR_MQTT_CONNECTION, 'Error in MQTT broker connection'),
-        (ERROR_DATABASE_CONNECTION, 'Error in database connection'),
-    )
-
-    timestamp = models.DateTimeField(auto_now=True)
-    error_type = models.IntegerField(verbose_name='Error type', choices=ErrorTypes)
-    details = models.TextField(verbose_name="Details")
-
-    objects = models.Manager()
-
-    @property
-    def error_type_description(self):
-        return "{}".format(self.ErrorTypes[self.error_type][1])
-
-    def __str__(self):
-        return "Error! Type: {}, Timestamp: {}, Details: {}".format(self.error_type_description, self.timestamp,
-                                                                    self.details)

@@ -2,13 +2,13 @@ from django.contrib.auth.models import User
 from rest_framework.serializers import ModelSerializer, CharField
 
 from model.models import BoardVendor, BoardModel, ControlBoard, SensorType, Sensor, SensorReadEvent, NotificationUser, \
-    ErrorReport, ControlBoardEvent, MQTTConnection, ConnectionStatus
+    ControlBoardEvent, MQTTConnection, ConnectionStatus
 
 
 class MQTTConnectionSerializer(ModelSerializer):
     class Meta:
         model = MQTTConnection
-        fields = ('id', 'hostname', 'port', 'last_status')
+        fields = ('id', 'hostname', 'port', 'last_status',)
 
 
 class ConnectionStatusSerializer(ModelSerializer):
@@ -16,7 +16,7 @@ class ConnectionStatusSerializer(ModelSerializer):
 
     class Meta:
         model = ConnectionStatus
-        fields = ('id', 'timestamp', 'host_status', 'hostname')
+        fields = ('id', 'timestamp', 'host_status', 'hostname',)
 
 
 class BoardVendorSerializer(ModelSerializer):
@@ -38,16 +38,17 @@ class ControlBoardSerializer(ModelSerializer):
 
     class Meta:
         model = ControlBoard
-        fields = ('id', 'nickname', 'mac_address', 'board_model', 'short_mac_id')
+        fields = ('id', 'nickname', 'mac_address', 'short_mac_id', 'prototype_side_description', 'board_model',)
 
 
 class ControlBoardEventSerializer(ModelSerializer):
     nickname = CharField(source='control_board.nickname', read_only=True)
     short_mac_id = CharField(source='control_board.short_mac_id', read_only=True)
+    prototype_side_description = CharField(source='control_board.prototype_side_description', read_only=True)
 
     class Meta:
         model = ControlBoardEvent
-        fields = ('id', 'timestamp', 'status_received', 'short_mac_id', 'nickname')
+        fields = ('id', 'short_mac_id', 'nickname', 'prototype_side_description', 'timestamp', 'status_received',)
 
 
 class SensorTypeSerializer(ModelSerializer):
@@ -62,15 +63,16 @@ class SensorSerializer(ModelSerializer):
 
     class Meta:
         model = Sensor
-        fields = ('id', 'sensor_id', 'description', 'sensor_type', 'control_board',)
+        fields = ('id', 'sensor_id', 'description', 'sensor_type', 'sensor_role_description', 'control_board',)
 
 
 class SensorReadEventSerializer(ModelSerializer):
     sensor_id = CharField(source='sensor.sensor_id', read_only=True)
+    prototype_side_description = CharField(source='sensor.control_board.prototype_side_description', read_only=True)
 
     class Meta:
         model = SensorReadEvent
-        fields = ('id', 'timestamp', 'value_read', 'sensor_id',)
+        fields = ('id', 'prototype_side_description', 'sensor_id', 'timestamp', 'value_read',)
 
 
 class UserSerializer(ModelSerializer):
@@ -85,9 +87,3 @@ class NotificationUserSerializer(ModelSerializer):
     class Meta:
         model = NotificationUser
         fields = ('id', 'notify_errors', 'user',)
-
-
-class ErrorReportSerializer(ModelSerializer):
-    class Meta:
-        model = ErrorReport
-        fields = ('id', 'timestamp', 'error_type', 'error_type_description', 'details',)
