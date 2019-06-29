@@ -8,9 +8,6 @@ import paho.mqtt.client as mqtt
 
 from model.models import ControlBoard, MQTTConnection, ConnectionStatus
 
-# MQTT_SERVER_HOST = "danieldias.mooo.com"
-# MQTT_SERVER_PORT = 1883
-# MQTT_SERVER_TIMEOUT = 60
 MQTT_DISCONNECTION_EMAIL_NOTIFY_TIMEOUT = 120
 CLIENT_ID = "TV-CWB-EstudoModelo"
 
@@ -19,6 +16,8 @@ MQTT_TOPIC_COMMAND = "/tvcwb1299/mmm/cmd/"
 
 LOG_OUTPUT_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 LOG_DATETIME_FORMAT = "%Y/%m/%d %H:%M:%S"
+
+EMAIL_SUBJECT='[Django Server] *** ERRO *** Terraço Verde IoT'
 
 logger = logging.getLogger("tvcwb.mqtt_client")
 
@@ -33,7 +32,7 @@ class DisconnectionTimer(Thread):
 
     def run(self):
         while (not self.stopped.wait(MQTT_DISCONNECTION_EMAIL_NOTIFY_TIMEOUT)) and (not self.sent):
-            email = EmailMessage('*** ERRO *** Terraço Verde IoT', 'Desconexão ocorrida com o broker MQTT.',
+            email = EmailMessage(EMAIL_SUBJECT, 'Desconexão ocorrida com o broker MQTT.',
                                  to=['daniel.dias@gmail.com'])
             email.send()
             self.sent = True
@@ -129,7 +128,7 @@ class MQTTBridge:
                         self.mqttc_cli.loop_start()
                     except (ConnectionRefusedError, TimeoutError) as ex:
                         if not email_sent:
-                            email = EmailMessage('*** ERRO *** Terraço Verde IoT',
+                            email = EmailMessage(EMAIL_SUBJECT,
                                                  'Não foi possível conectar servidor ao broker MQTT.',
                                                  to=['daniel.dias@gmail.com'])
                             email.send()
