@@ -40,7 +40,29 @@ def get_peak_delay(start_date_filter: str = None, end_date_filter: str = None):
                 surface_rain_timestamp = timezone.localtime(start_time).strftime('%d/%m/%Y %H:%M:%S')
                 drain_rain_timestamp = timezone.localtime(event.timestamp).strftime('%d/%m/%Y %H:%M:%S')
                 result.append(
-                    {"prototype_side": board.prototype_side_description, "surface_rain_timestamp": surface_rain_timestamp,
+                    {"prototype_side": board.prototype_side_description,
+                     "surface_rain_timestamp": surface_rain_timestamp,
                      "drain_rain_timestamp": drain_rain_timestamp, "diff": diff})
                 start_time = None
+    return result
+
+
+def get_pluviometer_reading(start_date_filter: str = None, end_date_filter: str = None):
+    query_res = SensorReadEvent.objects.all().order_by('timestamp')
+    if start_date_filter:
+        init_dt = datetime.strptime(start_date_filter, '%Y-%m-%dT%H-%M-%S')
+        query_res = query_res.filter(timestamp_gte=init_dt)
+    if end_date_filter:
+        end_dt = datetime.strptime(end_date_filter, '%Y-%m-%dT%H-%M-%S')
+        query_res = query_res.filter(timestamp_lte=end_dt)
+    boards = ControlBoard.objects.all()
+    result = []
+    for board in boards:
+        query_events = query_res.filter(Q(sensor__control_board_id=board.id) & (
+            Q(sensor__sensor_role=Sensor.ROLE_RAIN_AMOUNT)))
+        for event in query_events:
+            timestamp = timezone.localtime(event.timestamp).strftime('%d/%m/%Y %H:%M:%S')
+            value_converted = (event.sensor.sensor_reading_conversion * event.value_read)
+            result.append(
+                {"sensor_id": event.sensor.sensor_id, "timestamp": timestamp, "pluviometer_count": value_converted})
     return result

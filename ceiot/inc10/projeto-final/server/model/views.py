@@ -47,6 +47,17 @@ def get_peak_delay_in_csv(request):
     return __generate_csv('atraso_de_pico.csv', rows, request)
 
 
+def get_pluviometer_reading_in_csv(request):
+    start_date_filter = request.GET.get('start') if request.GET.get('start') else None
+    end_date_filter = request.GET.get('end') if request.GET.get('end') else None
+    results = analyzer.get_pluviometer_reading(start_date_filter=start_date_filter, end_date_filter=end_date_filter)
+    rows = [['Sensor', 'Data/Hora', 'Medição']]
+    for result in results:
+        rows.append([result['sensor_id'], result['timestamp'], result['pluviometer_count']])
+
+    return __generate_csv('pluviometro.csv', rows, request)
+
+
 def __generate_csv(csv_filname: str, rows, request):
     sep = ';' if request.GET.get('sep') == 'sc' else ','
     pseudo_buffer = Echo()

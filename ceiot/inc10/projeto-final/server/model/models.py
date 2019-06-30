@@ -144,6 +144,7 @@ class Sensor(models.Model):
     description = models.CharField(max_length=100, verbose_name="Description")
     sensor_type = models.ForeignKey(SensorType, on_delete=models.CASCADE, verbose_name="Type")
     sensor_role = models.IntegerField(verbose_name='Sensor role', choices=SensorRole)
+    sensor_reading_conversion = models.FloatField(verbose_name="Sensor reading conversion", default=0.0)
     control_board = models.ForeignKey(ControlBoard, on_delete=models.CASCADE, verbose_name="Control board")
 
     objects = models.Manager()
