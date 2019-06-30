@@ -752,6 +752,7 @@ PROCESS_THREAD(rain_sensors_process, ev, data) {
          PRINTF("##### Rain ended.\n");
          is_raining = false;
          pluviometer_counter = 0;
+         publish_sensor_status(TOPIC_PLUVIOMETER, pluviometer_counter);
          peak_delay_reported = false;
       }
 
