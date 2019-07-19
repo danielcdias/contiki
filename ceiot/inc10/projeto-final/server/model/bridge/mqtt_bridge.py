@@ -76,6 +76,8 @@ class MQTTBridge:
                     sensor = subquery[0]
                     try:
                         value = float(value_str)
+                        if sensor.sensor_type.precision > 0:
+                            value = value / (10 ** sensor.sensor_type.precision)
                         sensor_read_event = sensor.sensorreadevent_set.create(value_read=value)
                         sensor_read_event.save()
                     except ValueError:

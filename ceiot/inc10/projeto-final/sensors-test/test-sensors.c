@@ -117,7 +117,9 @@ PROCESS_THREAD(testMoistureSensor, ev, data) {
     printf("#3# ---------- Starting Moisture Sensors (ADC) test...\n");
 
     while (1) {
-        printf("#3# Moisture sensor - value read: %i\n", readADSMoistureSensor());
+
+        printf("#3# Moisture sensor reading at pin %i - value read: %i\n", MOISTURE_SENSOR, readADSMoistureSensor());
+
         etimer_set(&et_moistureSensor, MOISTURE_SENSOR_READ_INTERVAL * CLOCK_SECOND);
         PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et_moistureSensor);
     }

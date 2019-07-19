@@ -7,7 +7,7 @@
  * Implements a set of sensor readings to collect data regarding
  * the influence of green terraces in rain absortion.
  * Each CC2650 board will control a set of 5 rain sensors, 1 capacitive
- * soil moisture sensor and 1 pluviometer sensor.
+ * soil moisture sensor, 1 temperature sensor and 1 pluviometer sensor.
  *
  */
 
@@ -93,9 +93,10 @@
 #define TOPIC_RAIN_SENSOR_SURFACE_4 5
 #define TOPIC_RAIN_SENSOR_DRAIN 6
 #define TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR 7
-#define TOPIC_PLUVIOMETER 8
+#define TOPIC_TEMPERATURE_SENSOR 8
+#define TOPIC_PLUVIOMETER 9
 
-#define TOTAL_TOPICS 9
+#define TOTAL_TOPICS 10
 
 #define BOARD_STATUS_STARTED "STT"
 
@@ -116,9 +117,10 @@
  * 5 - rain sensor for surface 4 topic (TOPIC_RAIN_SENSOR_SURFACE_4)
  * 6 - rain sensor for drain topic (TOPIC_RAIN_SENSOR_DRAIN)
  * 7 - capacitive soil moisture sensor topic (TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR)
- * 8 - pluviometer sensor (TOPIC_PLUVIOMETER)
+ * 8 - temperature sensor (TOPIC_TEMPERATURE_SENSOR)
+ * 9 - pluviometer sensor (TOPIC_PLUVIOMETER)
  *
- * 'sensor_id' only has value for topics of sensors (index from 2 to 8)
+ * 'sensor_id' only has value for topics of sensors (index from 2 to 9)
  *
  */
 struct topic_sensor_t {
@@ -130,7 +132,7 @@ struct topic_sensor_t {
 
 static struct mqtt_sn_connection mqtt_sn_c;
 static char mqtt_client_id[17];
-static struct topic_sensor_t pub_sensors_topic[9];
+static struct topic_sensor_t pub_sensors_topic[TOTAL_TOPICS];
 static publish_packet_t incoming_packet;
 static uint16_t mqtt_keep_alive=10;
 static int8_t qos = 1;
@@ -171,7 +173,7 @@ PROCESS(green_led_process, "Controls green led indicator");
 PROCESS(red_led_process, "Controls ref led indicator");
 
 PROCESS(rain_sensors_process, "Reads from all rain sensors");
-PROCESS(moisture_sensor_process, "Reads from capacitive soil moisture sensor");
+PROCESS(moisture_sensor_process, "Reads from capacitive soil moisture and temperature sensors");
 PROCESS(pluviometer_sensor_process, "Receives events from pluviometer sensor");
 
 AUTOSTART_PROCESSES(&mqttsn_process);
@@ -210,6 +212,7 @@ static void init_sensor_topics_array() {
    strcpy(pub_sensors_topic[TOPIC_RAIN_SENSOR_SURFACE_4].sensor_id, SENSOR_RAIN_SURFACE_4);
    strcpy(pub_sensors_topic[TOPIC_RAIN_SENSOR_DRAIN].sensor_id, SENSOR_RAIN_DRAIN_1);
    strcpy(pub_sensors_topic[TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR].sensor_id, SENSOR_CAPACITIVE_SOIL_MOISTURE);
+   strcpy(pub_sensors_topic[TOPIC_TEMPERATURE_SENSOR].sensor_id, SENSOR_TEMPERATURE);
    strcpy(pub_sensors_topic[TOPIC_PLUVIOMETER].sensor_id, SENSOR_PLUVIOMETER);
    sprintf(pub_sensors_topic[TOPIC_CONTROL].topic, TOPIC_CMD, linkaddr_node_addr.u8[6],
            linkaddr_node_addr.u8[7]);
@@ -322,11 +325,11 @@ static void publish_board_status(char data[10]) {
 }
 
 
-static void publish_sensor_status(const uint8_t topic_index, uint32_t data) {
+static void publish_sensor_status(const uint8_t topic_index, int data) {
    set_green_led(GREEN_LED_SENDING_MESSAGE);
    static char buf[20];
    static uint8_t buf_len;
-   sprintf(buf, "%" PRIu32, data);
+   sprintf(buf, "%i", data);
    PRINTF("Publishing at topic: %s -> msg: %s\n", pub_sensors_topic[topic_index].topic, buf);
    buf_len = strlen(buf);
    uint16_t result = mqtt_sn_send_publish(&mqtt_sn_c, pub_sensors_topic[topic_index].topic_id,
@@ -428,7 +431,7 @@ PROCESS_THREAD(publish_process, ev, data) {
          break;
       }
    }
-   if (rreq_results == 8){
+   if (rreq_results == (TOTAL_TOPICS - 1)) {
       are_sta_topics_registered = true;
       PRINTF("All topics registered.\n");
    }
@@ -772,17 +775,26 @@ PROCESS_THREAD(rain_sensors_process, ev, data) {
 }
 
 /**
- * Controls the reading status of the capacitive soil moisture sensor.
+ * Controls the reading status of the capacitive soil moisture and temperature sensors.
  */
 PROCESS_THREAD(moisture_sensor_process, ev, data) {
    static struct etimer et;
 
    PROCESS_BEGIN();
 
+   static bool first_temp_reading = true;
+
    while ((!is_rebooting) && (is_connected)) {
-      int sensorRead = readADSMoistureSensor();
-      printf("##### Moisture sensor - value read: %i\n", sensorRead);
-      publish_sensor_status(TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR, sensorRead);
+      uint32_t moistureSensorRead = readADSMoistureSensor();
+      int temperatureSensorRead = readTemperatureSensor();
+      // TODO Tratar primeira leitura com 85.00 °C
+      if ((first_temp_reading) && (temperatureSensorRead == 8500)) {
+         first_temp_reading = false;
+      } else {
+         printf("##### Moisture sensor - value read: %li ##### Temperature sensor - value read: %i\n", moistureSensorRead, temperatureSensorRead);
+         publish_sensor_status(TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR, moistureSensorRead);
+         publish_sensor_status(TOPIC_TEMPERATURE_SENSOR, temperatureSensorRead);
+      }
       if (is_raining) {
          etimer_set(&et, (MOISTURE_SENSOR_READ_INTERVAL_RAIN  * CLOCK_SECOND));
        } else {
