@@ -42,6 +42,7 @@ void configureGPIOSensors() {
   IOCPinTypeGpioInput(RAIN_SENSOR_SURFACE_3);
   IOCPinTypeGpioInput(RAIN_SENSOR_SURFACE_4);
   IOCPinTypeGpioInput(RAIN_SENSOR_DRAIN);
+  IOCPinTypeGpioInput(JUMPER_PLUVIOMETER_INSTALLED);
 }
 
 uint32_t readADSMoistureSensor() {

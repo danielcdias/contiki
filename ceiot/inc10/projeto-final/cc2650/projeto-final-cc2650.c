@@ -587,7 +587,9 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
       publish_board_status(BOARD_STATUS_STARTED);
       process_start(&rain_sensors_process, NULL);
       process_start(&moisture_sensor_process, NULL);
-      process_start(&pluviometer_sensor_process, NULL);
+      if (readGPIOSensor(JUMPER_PLUVIOMETER_INSTALLED) == PLUVIOMETER_INSTALLED) {
+         process_start(&pluviometer_sensor_process, NULL);
+      }
       etimer_set(&et, 2*CLOCK_SECOND);
       while(!is_rebooting) {
          PROCESS_WAIT_EVENT();
@@ -754,8 +756,10 @@ PROCESS_THREAD(rain_sensors_process, ev, data) {
                ((valueRead[0] + valueRead[1] + valueRead[2] + valueRead[3]) >= 3)) {
          PRINTF("##### Rain ended.\n");
          is_raining = false;
-         pluviometer_counter = 0;
-         publish_sensor_status(TOPIC_PLUVIOMETER, pluviometer_counter);
+         if (readGPIOSensor(JUMPER_PLUVIOMETER_INSTALLED) == PLUVIOMETER_INSTALLED) {
+            pluviometer_counter = 0;
+            publish_sensor_status(TOPIC_PLUVIOMETER, pluviometer_counter);
+         }
          peak_delay_reported = false;
       }
 
