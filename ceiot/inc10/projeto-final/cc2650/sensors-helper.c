@@ -3,14 +3,18 @@
  * Author: Daniel Carvalho Dias (daniel.dias@gmail.com)
  * Date:   28/05/2019
  *
- * Implements the sensors-helper.h interface to configure and read from all sensors used
- * by the CC2650 board.
+ * Implements the sensors-helper.h interface to configure and read from all
+ * sensors used by the CC2650 board.
  *
- * All 5 rain sensors will use a GPIO port and the reading will be performed by pooling.
- * The pluviometer will use a interruption event, just like the button implementation
- * for the CC2650 board.
- * The moisture and temperature sensors will be used as ADC sensors.
+ * All 5 rain sensors and the temperature sensor will use a GPIO port and the
+ * reading will be performed by pooling.
  *
+ * The moisture sensor will be used as ADC sensor.
+ *
+ * The pluviometer will use a interruption event, just like a button's
+ * implementation for the CC2650 board.
+ * The presence of this sensor will be defined by a jumper. When ON, indicates
+ * the pluviometer is installed.
  */
 
 #include <stdio.h>

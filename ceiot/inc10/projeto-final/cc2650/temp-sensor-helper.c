@@ -3,11 +3,11 @@
  * Author: Daniel Carvalho Dias (daniel.dias@gmail.com)
  * Date:   12/07/2019
  *
- * Implements the temp-sensor-helper.h interface to configure and read from temperature
- * sensors used by the CC2650 board.
+ * Implements the temp-sensor-helper.h interface to configure and read from
+ * temperature sensors used by the CC2650 board.
  *
- * The temperature sensor DS18b20 uses a GPIO port and the reading will be performed by
- * pooling.
+ * The temperature sensor DS18b20 uses a GPIO port and the reading will be
+ * performed by pooling.
  *
  */
 

@@ -3,7 +3,7 @@
  * Author: Daniel Carvalho Dias (daniel.dias@gmail.com)
  * Date:   28/05/2019
  *
- * Implementation to configure and the pluviometer sensor to work with interruption
+ * Implementation to configure and the pluviometer to work with interruption
  * (as a button).
  *
  */

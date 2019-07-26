@@ -3,12 +3,11 @@
  * Author: Daniel Carvalho Dias (daniel.dias@gmail.com)
  * Date:   25/05/2019
  *
- * Main C file for the Terraço Verde CWB project.
- * Implements a set of sensor readings to collect data regarding
- * the influence of green terraces in rain absortion.
- * Each CC2650 board will control a set of 5 rain sensors, 1 capacitive
- * soil moisture sensor, 1 temperature sensor and 1 pluviometer sensor.
+ * Main C file for the Terraço Verde CWB project. Implements a set of sensor to collect
+ * data regarding the influence of green terraces in rain absorption.
  *
+ * Each CC2650 board will control a set of 5 rain sensors, 1 capacitive soil moisture
+ * sensor and 1 temperature sensor. A pluviometer sensor may also be connected.
  */
 
 /******************************************************************************
@@ -280,9 +279,6 @@ static void publish_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t 
    incoming_packet.data[datalen-7] = 0x00;
    PRINTF("[E] Published message received: %s\n", incoming_packet.data);
    if (uip_htons(incoming_packet.topic_id) == pub_sensors_topic[TOPIC_CONTROL].topic_id) {
-      // TODO Tratar dados recebidos
-      // Verificar tamanho dos dados (quantidade de dígitos do número recebido)
-      // e utilizar tipo de variavel correta.
       // TODO Incluir código para comando recebido
    } else {
       PRINTF("[E] Unknown publication received.\n");
@@ -716,46 +712,73 @@ PROCESS_THREAD(rain_sensors_process, ev, data) {
    configureGPIOSensors();
 
    static uint16_t rsa_interval_counter = 0;
+   static int previousValueRead[] = {1, 1, 1, 1, 1}; // Starts with 1, that's the value for no short circuit in rain sensor.
+   static int lastReadClock[] = {0, 0, 0, 0, 0};
+   static int rainSensorState[] = {RAIN_SENSOR_NOT_RAINING, RAIN_SENSOR_NOT_RAINING, RAIN_SENSOR_NOT_RAINING, RAIN_SENSOR_NOT_RAINING, RAIN_SENSOR_NOT_RAINING};
+
+   static uint8_t i;
 
    while ((!is_rebooting) && (is_connected)) {
+
       static int valueRead[5];
+
       valueRead[0] = readGPIOSensor(RAIN_SENSOR_SURFACE_1);
       valueRead[1] = readGPIOSensor(RAIN_SENSOR_SURFACE_2);
       valueRead[2] = readGPIOSensor(RAIN_SENSOR_SURFACE_3);
       valueRead[3] = readGPIOSensor(RAIN_SENSOR_SURFACE_4);
       valueRead[4] = readGPIOSensor(RAIN_SENSOR_DRAIN);
 
-      // Not raining and, at least, 2 rain sensors reporting rain (1 = not raining)
-      if ((!is_raining) && ((valueRead[0] + valueRead[1] + valueRead[2] + valueRead[3]) <= 2)) {
+      for (i = 0; i < 5; i++) {
+         if (previousValueRead[i] != valueRead[i]) {
+            rainSensorState[i] = RAIN_SENSOR_RAINING;
+            lastReadClock[i] = clock_seconds();
+         } else {
+            if ((clock_seconds() - lastReadClock[i]) >= RAIN_SENSOR_TIMEOUT_RAIN) {
+               rainSensorState[i] = RAIN_SENSOR_NOT_RAINING;
+            }
+         }
+         previousValueRead[i] = valueRead[i];
+      }
+
+      if ((!is_raining) && ((rainSensorState[0] + rainSensorState[1] + rainSensorState[2] + rainSensorState[3]) >= RAIN_MIN_SENSORS_DETECT_RAIN)) {
          is_raining = true;
-         if (valueRead[0] == RAIN_SENSOR_RAINING) {
-            PRINTF("##### Rain started! (1)\n");
+         PRINTF("##### Rain started!\n");
+         if (rainSensorState[0] == RAIN_SENSOR_RAINING) {
             publish_sensor_status(TOPIC_RAIN_SENSOR_SURFACE_1, RAIN_SENSOR_RAINING);
          }
-         if (valueRead[1] == RAIN_SENSOR_RAINING) {
-            PRINTF("##### Rain started! (2)\n");
+         if (rainSensorState[1] == RAIN_SENSOR_RAINING) {
             publish_sensor_status(TOPIC_RAIN_SENSOR_SURFACE_2, RAIN_SENSOR_RAINING);
          }
-         if (valueRead[2] == RAIN_SENSOR_RAINING) {
-            PRINTF("##### Rain started! (3)\n");
+         if (rainSensorState[2] == RAIN_SENSOR_RAINING) {
             publish_sensor_status(TOPIC_RAIN_SENSOR_SURFACE_3, RAIN_SENSOR_RAINING);
          }
-         if (valueRead[3] == RAIN_SENSOR_RAINING) {
-            PRINTF("##### Rain started! (4)\n");
+         if (rainSensorState[3] == RAIN_SENSOR_RAINING) {
             publish_sensor_status(TOPIC_RAIN_SENSOR_SURFACE_4, RAIN_SENSOR_RAINING);
          }
       }
-      if ((is_raining) && (!peak_delay_reported) && (valueRead[4] == RAIN_SENSOR_RAINING)) {
+
+      if ((is_raining) && (!peak_delay_reported) && (rainSensorState[4] == RAIN_SENSOR_RAINING)) {
          PRINTF("##### Drain reached!\n");
          peak_delay_reported = true;
          publish_sensor_status(TOPIC_RAIN_SENSOR_DRAIN, RAIN_SENSOR_RAINING);
       }
 
       // Raining and, at least, 3 rain sensors reporting not raining (1 = not raining)
-      if ((is_raining) &&
-               ((valueRead[0] + valueRead[1] + valueRead[2] + valueRead[3]) >= 3)) {
+      if ((is_raining) && ((rainSensorState[0] + rainSensorState[1] + rainSensorState[2] + rainSensorState[3]) < RAIN_MIN_SENSORS_DETECT_RAIN)) {
          PRINTF("##### Rain ended.\n");
          is_raining = false;
+         if (rainSensorState[0] == RAIN_SENSOR_NOT_RAINING) {
+            publish_sensor_status(TOPIC_RAIN_SENSOR_SURFACE_1, RAIN_SENSOR_NOT_RAINING);
+         }
+         if (rainSensorState[1] == RAIN_SENSOR_NOT_RAINING) {
+            publish_sensor_status(TOPIC_RAIN_SENSOR_SURFACE_2, RAIN_SENSOR_NOT_RAINING);
+         }
+         if (rainSensorState[2] == RAIN_SENSOR_NOT_RAINING) {
+            publish_sensor_status(TOPIC_RAIN_SENSOR_SURFACE_3, RAIN_SENSOR_NOT_RAINING);
+         }
+         if (rainSensorState[3] == RAIN_SENSOR_NOT_RAINING) {
+            publish_sensor_status(TOPIC_RAIN_SENSOR_SURFACE_4, RAIN_SENSOR_NOT_RAINING);
+         }
          if (readGPIOSensor(JUMPER_PLUVIOMETER_INSTALLED) == PLUVIOMETER_INSTALLED) {
             pluviometer_counter = 0;
             publish_sensor_status(TOPIC_PLUVIOMETER, pluviometer_counter);
@@ -770,9 +793,10 @@ PROCESS_THREAD(rain_sensors_process, ev, data) {
       if (rsa_interval_counter >= REPORT_RAIN_SENSORS_ARRAY_INTERVAL) {
          rsa_interval_counter = 0;
          char rsa_values[9];
-         sprintf(rsa_values, RAIN_SENSORS_STATUS_ARRAY, valueRead[0], valueRead[1], valueRead[2], valueRead[3], valueRead[4]);
+         sprintf(rsa_values, RAIN_SENSORS_STATUS_ARRAY, rainSensorState[0], rainSensorState[1], rainSensorState[2], rainSensorState[3], rainSensorState[4]);
          publish_board_status(rsa_values);
       }
+
    }
 
    PROCESS_END();
@@ -791,7 +815,6 @@ PROCESS_THREAD(moisture_sensor_process, ev, data) {
    while ((!is_rebooting) && (is_connected)) {
       uint32_t moistureSensorRead = readADSMoistureSensor();
       int temperatureSensorRead = readTemperatureSensor();
-      // TODO Tratar primeira leitura com 85.00 °C
       if ((first_temp_reading) && (temperatureSensorRead == 8500)) {
          first_temp_reading = false;
       } else {
