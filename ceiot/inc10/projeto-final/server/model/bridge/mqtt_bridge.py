@@ -14,10 +14,14 @@ CLIENT_ID = "TV-CWB-EstudoModelo"
 MQTT_TOPIC_STATUS = "/tvcwb1299/mmm/sta/#"
 MQTT_TOPIC_COMMAND = "/tvcwb1299/mmm/cmd/"
 
+MQTT_CMD_SERVER_TIMESTAMP = "T"
+
+MQTT_BOARD_STARTUP_STATUS = "STT"
+
 LOG_OUTPUT_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 LOG_DATETIME_FORMAT = "%Y/%m/%d %H:%M:%S"
 
-EMAIL_SUBJECT='[Django Server] *** ERRO *** Terraço Verde IoT'
+EMAIL_SUBJECT = '[Django Server] *** ERRO *** Terraço Verde IoT'
 
 logger = logging.getLogger("tvcwb.mqtt_client")
 
@@ -44,22 +48,19 @@ class MQTTBridge:
         self.mqttc_cli = mqtt.Client(client_id=CLIENT_ID)
         self.is_running = False
 
-    @staticmethod
-    def on_connect(client, userdata, flags, rc):
+    def on_connect(self, client, userdata, flags, rc):
         stop_timer_flag.set()
         logger.info("Connection started with {}, {}, {}, {}.".format(client, userdata, flags, rc))
         MQTTBridge.__update_connection_status(ConnectionStatus.CONNECTED)
 
-    @staticmethod
-    def on_disconnect(client, userdata, rc):
+    def on_disconnect(self, client, userdata, rc):
         logger.warning("Connection finished with {}, {}, {}.".format(client, userdata, rc))
         MQTTBridge.__update_connection_status(ConnectionStatus.DISCONNECTED)
         stop_timer_flag.clear()
         thread = DisconnectionTimer(stop_timer_flag)
         thread.start()
 
-    @staticmethod
-    def on_message(client, userdata, message):
+    def on_message(self, client, userdata, message):
         logger.debug("Message received from {}, {}, message: {}, {}, {}, {}.".format(client, userdata, message.topic,
                                                                                      message.payload, message.qos,
                                                                                      message.retain))
@@ -88,15 +89,15 @@ class MQTTBridge:
             else:
                 board_event_received = board.controlboardevent_set.create(status_received=value_str[:10])
                 board_event_received.save()
+                if value_str[0:3] == MQTT_BOARD_STARTUP_STATUS:
+                    self.send_command(board, MQTT_CMD_SERVER_TIMESTAMP, MQTTBridge.get_time_in_seconds())
         else:
             logger.warning("No control board was found with mac address ending with {}.".format(mac_end))
 
-    @staticmethod
-    def on_publish(client, userdata, mid):
+    def on_publish(self, client, userdata, mid):
         logger.debug("Message published from {}, {}, {}.".format(client, userdata, mid))
 
-    @staticmethod
-    def on_subscribe(client, userdata, mid, granted_qos):
+    def on_subscribe(self, client, userdata, mid, granted_qos):
         logger.debug("Subscribed {}, {}, {}, {}.".format(client, userdata, mid, granted_qos))
 
     def on_log(self, mqttc, obj, level, string):
@@ -141,10 +142,10 @@ class MQTTBridge:
                     logger.error("No connection info found!")
             time.sleep(5)
 
-    def send_command(self, board: ControlBoard, value: int):
+    def send_command(self, board: ControlBoard, cmd: str, value: int) -> bool:
         result = False
         try:
-            buf = str(value)
+            buf = cmd + str(value)
             queue_cmd = MQTT_TOPIC_COMMAND + board.mac_address[12:14] + board.mac_address[15:17]
             logger.debug("Sending to queue {} - command {}".format(queue_cmd, buf))
             self.mqttc_cli.publish(queue_cmd, buf)
@@ -165,6 +166,10 @@ class MQTTBridge:
         else:
             logger.error("Invalid value for connection status.")
             raise ValueError("Invalid value for connection status.")
+
+    @staticmethod
+    def get_time_in_seconds() -> int:
+        return int(round(time.time()))
 
 
 bridge = MQTTBridge()
