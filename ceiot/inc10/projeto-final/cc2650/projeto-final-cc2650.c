@@ -45,6 +45,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 #define MDNS 1
 
@@ -59,11 +60,14 @@
 #define TOPIC_STA_GENERAL "/tvcwb1299/mmm/sta/%02X%02X"
 #define TOPIC_CMD "/tvcwb1299/mmm/cmd/%02X%02X"
 
-#define RAIN_SENSORS_STATUS_ARRAY "RSS%u%u%u%u%u"
+#define RAIN_SENSORS_STATUS_ARRAY "RSS%u%u%u%u%uPLV%u"
+
+#define MESSAGE_STATUS_FORMAT "%iT%li"
+#define MESSAGE_BOARD_FORMAT "%sT%li"
 
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       danieldias.mooo.com
+#define UDP_CONNECTION_ADDR       tv-cwb-iot.mooo.com
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
@@ -98,6 +102,9 @@
 #define TOTAL_TOPICS 10
 
 #define BOARD_STATUS_STARTED "STT"
+#define BOARD_STATUS_TIMESTAMP_UPDATE_REQUEST "TUR"
+
+#define TIMESTAMP_UPDATE_REQUEST_INTERVAL 86400 // One day in seconds
 
 /******************************************************************************
  * Global variables and structs definitions
@@ -147,7 +154,10 @@ static bool is_connected = false;
 static bool is_raining = false;
 static bool peak_delay_reported = false;
 
-static uint32_t pluviometer_counter = 0;
+static uint16_t pluviometer_counter = 0;
+
+static uint32_t base_timestamp_from_server = 0;
+static uint32_t base_clock_seconds = 0;
 
 static uint8_t green_led_state = GREEN_LED_OFF;
 static uint8_t red_led_state = RED_LED_CONNECTING;
@@ -170,12 +180,13 @@ PROCESS(inactivity_watchdog_process, "Monitor for network inactivity");
 PROCESS(reboot_process, "Reboots the board");
 PROCESS(green_led_process, "Controls green led indicator");
 PROCESS(red_led_process, "Controls ref led indicator");
+PROCESS(request_timestamp_update, "Send command requesting timestamp update");
 
 PROCESS(rain_sensors_process, "Reads from all rain sensors");
 PROCESS(moisture_sensor_process, "Reads from capacitive soil moisture and temperature sensors");
 PROCESS(pluviometer_sensor_process, "Receives events from pluviometer sensor");
 
-AUTOSTART_PROCESSES(&mqttsn_process);
+AUTOSTART_PROCESSES(&mqttsn_process, &request_timestamp_update);
 
 /******************************************************************************
  * Functions implementation
@@ -279,7 +290,14 @@ static void publish_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t 
    incoming_packet.data[datalen-7] = 0x00;
    PRINTF("[E] Published message received: %s\n", incoming_packet.data);
    if (uip_htons(incoming_packet.topic_id) == pub_sensors_topic[TOPIC_CONTROL].topic_id) {
-      // TODO Incluir código para comando recebido
+      if (incoming_packet.data[0] == 'T') {
+         PRINTF(">>> Timestamp from SERVER received!");
+         char timestamp_str[11] = "\0";
+         memcpy(timestamp_str, &incoming_packet.data[1], 10);
+         // TODO Salvar dados recebidos na flash
+         base_clock_seconds = clock_seconds();
+         base_timestamp_from_server = atoi(timestamp_str);
+      }
    } else {
       PRINTF("[E] Unknown publication received.\n");
    }
@@ -307,13 +325,23 @@ static const struct mqtt_sn_callbacks mqtt_sn_call = {
    NULL
 };
 
-static void publish_board_status(char data[10]) {
+static uint32_t get_current_timestamp() {
+   return base_timestamp_from_server + (clock_seconds() - base_clock_seconds);
+}
+
+static void publish_board_status(char data[20]) {
    set_green_led(GREEN_LED_SENDING_MESSAGE);
    static uint8_t buf_len;
-   PRINTF("Publishing at topic: %s -> msg: %s\n", pub_sensors_topic[TOPIC_STATUS_GENERAL].topic, data);
-   buf_len = strlen(data);
+   static char buf[32] = "\0";
+   if ((strcmp(BOARD_STATUS_STARTED, data)) && (strcmp(BOARD_STATUS_TIMESTAMP_UPDATE_REQUEST, data))) {
+      sprintf(buf, MESSAGE_BOARD_FORMAT, data, get_current_timestamp());
+   } else {
+      strcpy(buf, data);
+   }
+   buf_len = strlen(buf);
+   PRINTF("Publishing at topic: %s -> msg: %s\n", pub_sensors_topic[TOPIC_STATUS_GENERAL].topic, buf);
    uint16_t result = mqtt_sn_send_publish(&mqtt_sn_c, pub_sensors_topic[TOPIC_STATUS_GENERAL].topic_id,
-                       MQTT_SN_TOPIC_TYPE_NORMAL, data, buf_len, qos, retain);
+                       MQTT_SN_TOPIC_TYPE_NORMAL, buf, buf_len, qos, retain);
    process_post(&inactivity_watchdog_process, network_inactivity_timeout_reset, NULL);
    if (result == 0) {
       PRINTF("** Error publishing message **");
@@ -323,9 +351,9 @@ static void publish_board_status(char data[10]) {
 
 static void publish_sensor_status(const uint8_t topic_index, int data) {
    set_green_led(GREEN_LED_SENDING_MESSAGE);
-   static char buf[20];
+   static char buf[20] = "\0";
    static uint8_t buf_len;
-   sprintf(buf, "%i", data);
+   sprintf(buf, MESSAGE_STATUS_FORMAT, data, get_current_timestamp());
    PRINTF("Publishing at topic: %s -> msg: %s\n", pub_sensors_topic[topic_index].topic, buf);
    buf_len = strlen(buf);
    uint16_t result = mqtt_sn_send_publish(&mqtt_sn_c, pub_sensors_topic[topic_index].topic_id,
@@ -581,6 +609,17 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
       set_red_led(RED_LED_CONNECTED);
       set_green_led(GREEN_LED_NO_MESSAGE);
       publish_board_status(BOARD_STATUS_STARTED);
+      i = 0;
+      while (base_timestamp_from_server == 0) {
+         etimer_set(&et, 1 * CLOCK_SECOND);
+         PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
+         i++;
+         if (i >= 60) {
+            PRINTF("***** Taking too long to received base timestamp...\n");
+            reboot_board();
+            break;
+         }
+      }
       process_start(&rain_sensors_process, NULL);
       process_start(&moisture_sensor_process, NULL);
       if (readGPIOSensor(JUMPER_PLUVIOMETER_INSTALLED) == PLUVIOMETER_INSTALLED) {
@@ -792,8 +831,8 @@ PROCESS_THREAD(rain_sensors_process, ev, data) {
       rsa_interval_counter++;
       if (rsa_interval_counter >= REPORT_RAIN_SENSORS_ARRAY_INTERVAL) {
          rsa_interval_counter = 0;
-         char rsa_values[9];
-         sprintf(rsa_values, RAIN_SENSORS_STATUS_ARRAY, rainSensorState[0], rainSensorState[1], rainSensorState[2], rainSensorState[3], rainSensorState[4]);
+         char rsa_values[17];
+         sprintf(rsa_values, RAIN_SENSORS_STATUS_ARRAY, rainSensorState[0], rainSensorState[1], rainSensorState[2], rainSensorState[3], rainSensorState[4], pluviometer_counter);
          publish_board_status(rsa_values);
       }
 
@@ -853,5 +892,22 @@ PROCESS_THREAD(pluviometer_sensor_process, ev, data) {
    }
 
    SENSORS_DEACTIVATE(pluviometer_sensor);
+   PROCESS_END();
+}
+
+/**
+ * Sends command requesting timestamp update every day
+ */
+PROCESS_THREAD(request_timestamp_update, ev, data) {
+   PROCESS_BEGIN();
+
+   static struct etimer et;
+
+   while (true) {
+      etimer_set(&et, (TIMESTAMP_UPDATE_REQUEST_INTERVAL  * CLOCK_SECOND));
+      PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
+      publish_board_status(BOARD_STATUS_TIMESTAMP_UPDATE_REQUEST);
+   }
+
    PROCESS_END();
 }

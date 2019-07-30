@@ -3,6 +3,10 @@ import time
 
 from django.core.mail import EmailMessage
 from threading import Thread, Event
+from datetime import datetime
+from django.utils import timezone
+from config import settings
+from pytz import timezone as tz
 
 import paho.mqtt.client as mqtt
 
@@ -17,6 +21,7 @@ MQTT_TOPIC_COMMAND = "/tvcwb1299/mmm/cmd/"
 MQTT_CMD_SERVER_TIMESTAMP = "T"
 
 MQTT_BOARD_STARTUP_STATUS = "STT"
+MQTT_BOARD_TIMESTAMP_UPDATE_REQUEST = "TUR"
 
 LOG_OUTPUT_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 LOG_DATETIME_FORMAT = "%Y/%m/%d %H:%M:%S"
@@ -70,32 +75,44 @@ class MQTTBridge:
         query = ControlBoard.objects.filter(mac_address__endswith=mac_end)
         if query:
             board = query[0]
-            value_str = message.payload.decode()
-            if sensor_id:
-                subquery = board.sensor_set.all().filter(sensor_id=sensor_id)
-                if subquery:
-                    sensor = subquery[0]
-                    try:
-                        value = float(value_str)
-                        if sensor.sensor_type.precision > 0:
-                            value = value / (10 ** sensor.sensor_type.precision)
-                        sensor_read_event = sensor.sensorreadevent_set.create(value_read=value)
-                        sensor_read_event.save()
-                    except ValueError:
-                        logger.warning("Value received is not a valid float: {}".format(value_str))
+            payload = message.payload.decode()
+            if MQTTBridge.is_valid_payload(payload):
+                value_str = payload
+                timestamp = timezone.now()
+                if (len(payload) >= 12) and (payload.find(MQTT_CMD_SERVER_TIMESTAMP) > -1):
+                    value_str = payload[0:payload.find(MQTT_CMD_SERVER_TIMESTAMP)]
+                    timestamp = timezone.localtime(
+                        datetime.fromtimestamp(int(payload[payload.find(MQTT_CMD_SERVER_TIMESTAMP) + 1:]),
+                                               tz=tz(settings.TIME_ZONE)))
+                if sensor_id:
+                    subquery = board.sensor_set.all().filter(sensor_id=sensor_id)
+                    if subquery:
+                        sensor = subquery[0]
+                        try:
+                            value = float(value_str)
+                            if sensor.sensor_type.precision > 0:
+                                value = value / (10 ** sensor.sensor_type.precision)
+                            sensor_read_event = sensor.sensorreadevent_set.create(timestamp=timestamp, value_read=value)
+                            sensor_read_event.save()
+                        except ValueError:
+                            logger.warning("Value received is not a valid float: {}".format(value_str))
+                    else:
+                        logger.warning(
+                            "No sensor was found with ID {} for the control board {}.".format(sensor_id,
+                                                                                              board.nickname))
                 else:
-                    logger.warning(
-                        "No sensor was found with ID {} for the control board {}.".format(sensor_id, board.nickname))
+                    board_event_received = board.controlboardevent_set.create(timestamp=timestamp,
+                                                                              status_received=value_str[:10])
+                    board_event_received.save()
+                    if value_str[0:3] in (MQTT_BOARD_STARTUP_STATUS, MQTT_BOARD_TIMESTAMP_UPDATE_REQUEST):
+                        self.send_command(board, MQTT_CMD_SERVER_TIMESTAMP, MQTTBridge.get_time_in_seconds())
             else:
-                board_event_received = board.controlboardevent_set.create(status_received=value_str[:10])
-                board_event_received.save()
-                if value_str[0:3] == MQTT_BOARD_STARTUP_STATUS:
-                    self.send_command(board, MQTT_CMD_SERVER_TIMESTAMP, MQTTBridge.get_time_in_seconds())
+                logger.warning("Payload received is not well formatted: {}.".format(payload))
         else:
             logger.warning("No control board was found with mac address ending with {}.".format(mac_end))
 
     def on_publish(self, client, userdata, mid):
-        logger.debug("Message published from {}, {}, {}.".format(client, userdata, mid))
+        logger.debug("Message published to {}, {}, {}.".format(client, userdata, mid))
 
     def on_subscribe(self, client, userdata, mid, granted_qos):
         logger.debug("Subscribed {}, {}, {}, {}.".format(client, userdata, mid, granted_qos))
@@ -170,6 +187,12 @@ class MQTTBridge:
     @staticmethod
     def get_time_in_seconds() -> int:
         return int(round(time.time()))
+
+    @staticmethod
+    def is_valid_payload(payload: str) -> bool:
+        result = (payload in (MQTT_BOARD_STARTUP_STATUS, MQTT_BOARD_TIMESTAMP_UPDATE_REQUEST)) or \
+                 ((len(payload) >= 12) and (payload.find(MQTT_CMD_SERVER_TIMESTAMP) > -1))
+        return result
 
 
 bridge = MQTTBridge()

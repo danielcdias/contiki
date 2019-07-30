@@ -103,7 +103,7 @@ class ControlBoard(models.Model):
 
 
 class ControlBoardEvent(models.Model):
-    timestamp = models.DateTimeField(auto_now=True)
+    timestamp = models.DateTimeField()
     status_received = models.CharField(max_length=10)
     control_board = models.ForeignKey(ControlBoard, on_delete=models.CASCADE, verbose_name="ControlBoard")
 
@@ -134,7 +134,7 @@ class Sensor(models.Model):
     ROLE_RAIN_AMOUNT = 3
 
     SensorRole = (
-        (ROLE_RAIN_DETECTION_SURFACE, "Detecção de chuva na supercífie"),
+        (ROLE_RAIN_DETECTION_SURFACE, "Detecção de chuva na superfície"),
         (ROLE_RAIN_DETECTION_DRAIN, "Detecção de chuva no ralo"),
         (ROLE_RAIN_ABSORPTION, "Absorção de chuva"),
         (ROLE_RAIN_AMOUNT, "Quantidade de chuva"),
@@ -158,7 +158,7 @@ class Sensor(models.Model):
 
 
 class SensorReadEvent(models.Model):
-    timestamp = models.DateTimeField(auto_now=True)
+    timestamp = models.DateTimeField()
     value_read = models.FloatField()
     sensor = models.ForeignKey(Sensor, on_delete=models.CASCADE, verbose_name="Sensor")
 
