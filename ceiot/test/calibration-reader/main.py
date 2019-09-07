@@ -28,17 +28,18 @@ DB_FOLDER = "." + os.sep + "db"
 DB_FILE = DB_FOLDER + os.sep + "sensor-calibration.db"
 
 DB_TABLE_CREATE = "CREATE TABLE calibration(id INTEGER PRIMARY KEY AUTOINCREMENT, sensor INTEGER NOT NULL, " \
-                  "sample INTEGER NOT NULL, scale INTEGER NOT NULL, value INTEGER NOT NULL)"
+                  "sample INTEGER NOT NULL, scale INTEGER NOT NULL, weight REAL NOT NULL, value INTEGER NOT NULL)"
 
 DB_TABLE_CHECK = "SELECT name FROM sqlite_master WHERE type='table' AND name='calibration'"
 
-DB_TABLE_INSERT = "INSERT INTO calibration(sensor, sample, scale, value) VALUES (?, ?, ?, ?)"
+DB_TABLE_INSERT = "INSERT INTO calibration(sensor, sample, scale, weight, value) VALUES (?, ?, ?, ?, ?)"
 
 DB_TABLE_SELECT = "SELECT * FROM calibration"
 
 DB_TABLE_SELECT_COUNT = "SELECT COUNT(*) FROM calibration"
 
 DB_TABLE_CLEAR = "DELETE FROM calibration"
+DB_RESET_SEQ = "UPDATE sqlite_sequence SET seq = 0 WHERE name='calibration'"
 
 REPOSITORY_FOLDER = "." + os.sep + "data"
 
@@ -48,6 +49,7 @@ REPOSITORY_OBJECT = {
     "num_sensors": 0,
     "sample_count": 0,
     "scale_interval": 0,
+    "scale_end": 0,
     "i": 0,
     "j": 1,
     "finished": True
@@ -181,7 +183,7 @@ def connect() -> sqlite.Connection:
     return result
 
 
-def save_reading(sample: int, scale: int, reading: dict, num_sensors: int) -> bool:
+def save_reading(sample: int, scale: int, weight: float, reading: dict, num_sensors: int) -> bool:
     logger.debug("Saving to database...")
     result = False
     conn = connect()
@@ -189,7 +191,7 @@ def save_reading(sample: int, scale: int, reading: dict, num_sensors: int) -> bo
         if conn:
             cursor = conn.cursor()
             for i in range(1, (num_sensors + 1)):
-                parms = [i, sample, scale, reading['s{}'.format(i)]]
+                parms = [i, sample, scale, weight, reading['s{}'.format(i)]]
                 cursor.execute(DB_TABLE_INSERT, parms)
             conn.commit()
             cursor.close()
@@ -257,6 +259,7 @@ def clear_db() -> bool:
         if conn:
             cursor = conn.cursor()
             cursor.execute(DB_TABLE_CLEAR)
+            cursor.execute(DB_RESET_SEQ)
             conn.commit()
             cursor.close()
             result = True
@@ -333,10 +336,12 @@ class CalibrationTool(QWidget):
         self._lb_num_sensors = QLabel()
         self._lb_samples = QLabel()
         self._lb_scale = QLabel()
+        self._lb_scale_end = QLabel()
+        self._lb_port = QLabel()
         self._ti_num_sensors = QLineEdit()
         self._ti_samples = QLineEdit()
         self._ti_scale = QLineEdit()
-        self._lb_port = QLabel()
+        self._ti_scale_end = QLineEdit()
         self._ti_port = QLineEdit()
         self._gb_actions = QGroupBox()
         self._bt_start = QPushButton('Iniciar', self)
@@ -351,7 +356,6 @@ class CalibrationTool(QWidget):
 
     def location_on_the_screen(self):
         ag = QDesktopWidget().availableGeometry()
-
         widget = self.geometry()
         x = int((ag.width() / 2) - widget.width())
         self.move(x, 10)
@@ -383,7 +387,7 @@ class CalibrationTool(QWidget):
         self._lb_samples.setBuddy(self._ti_samples)
         layout_gb_parameters.addWidget(self._lb_samples)
         layout_gb_parameters.addWidget(self._ti_samples)
-        self._lb_scale.setText("Intervalo escala de umidade:")
+        self._lb_scale.setText("Intervalo quantidade de água:")
         self._lb_scale.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self._ti_scale.setValidator(QIntValidator())
         self._ti_scale.setMaxLength(2)
@@ -392,6 +396,15 @@ class CalibrationTool(QWidget):
         self._lb_scale.setBuddy(self._ti_scale)
         layout_gb_parameters.addWidget(self._lb_scale)
         layout_gb_parameters.addWidget(self._ti_scale)
+        self._lb_scale_end.setText("Valor final escala:")
+        self._lb_scale_end.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._ti_scale_end.setValidator(QDoubleValidator())
+        self._ti_scale_end.setMaxLength(6)
+        self._ti_scale_end.setFixedSize(50, 20)
+        self._ti_scale_end.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._lb_scale_end.setBuddy(self._ti_scale_end)
+        layout_gb_parameters.addWidget(self._lb_scale_end)
+        layout_gb_parameters.addWidget(self._ti_scale_end)
         self._lb_port.setText("Porta conexão:")
         self._lb_port.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self._ti_port.setMaxLength(5)
@@ -422,12 +435,13 @@ class CalibrationTool(QWidget):
         # GroupBox Table
         self._gb_table.setTitle("Valores lidos dos sensores")
         layout_gb_table = QHBoxLayout()
-        self._table.setColumnCount(4)
+        self._table.setColumnCount(5)
         self._table.setAlternatingRowColors(True)
         self._table.setCornerButtonEnabled(False)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
-        self._table.setHorizontalHeaderLabels(["Sensor", "Amostra", "Escala de umidade", "Valor lido"])
+        self._table.setHorizontalHeaderLabels(
+            ["Sensor", "Amostra", "Escala de água", "Peso da amostra (g)", "Valor lido"])
         self._table.resizeColumnsToContents()
         self._table.setFixedHeight(200)
         # self._table.resizeRowsToContents()
@@ -469,6 +483,7 @@ class CalibrationTool(QWidget):
         self._ti_num_sensors.setDisabled(disabled)
         self._ti_samples.setDisabled(disabled)
         self._ti_scale.setDisabled(disabled)
+        self._ti_scale_end.setDisabled(disabled)
 
     def validate_input(self, lineedit: QLineEdit, input_name: str, min_val: int, max_val: int) -> bool:
         result = True
@@ -485,6 +500,26 @@ class CalibrationTool(QWidget):
             self.show_error(
                 "Por favor, informe um valor inteiro entre {} e {} para campo {}.".format(min_val, max_val,
                                                                                           input_name.replace(':', '')))
+            self.togle_start_widgets(False)
+            lineedit.selectAll()
+            lineedit.setFocus()
+        return result
+
+    def validate_input_float(self, lineedit: QLineEdit, input_name: str, min_val: float, max_val: float) -> bool:
+        result = True
+        if not lineedit.text().strip():
+            result = False
+        else:
+            try:
+                value = float(lineedit.text())
+                if (value < min_val) or (value > max_val):
+                    result = False
+            except ValueError:
+                result = False
+        if not result:
+            self.show_error(
+                "Por favor, informe um valor com até uma casa de precisão entre {} e {} para campo {}.".format(
+                    min_val, max_val, input_name.replace(':', '')))
             self.togle_start_widgets(False)
             lineedit.selectAll()
             lineedit.setFocus()
@@ -510,63 +545,66 @@ class CalibrationTool(QWidget):
     @pyqtSlot()
     def on_click_start(self):
         logger.debug("[CalibrationTool] Start process...")
-        logger.debug("[CalibrationTool] num_sensors = '{}'".format(self._ti_num_sensors.text()))
         self.togle_start_widgets(True)
+        logger.debug("[CalibrationTool] num_sensors = '{}'".format(self._ti_num_sensors.text()))
         if self.validate_input(self._ti_num_sensors, self._lb_num_sensors.text(), 1, 10):
             logger.debug("[CalibrationTool] samples = '{}'".format(self._ti_samples.text()))
             if self.validate_input(self._ti_samples, self._lb_samples.text(), 1, 50):
                 logger.debug("[CalibrationTool] scales = '{}'".format(self._ti_scale.text()))
                 if self.validate_input(self._ti_scale, self._lb_scale.text(), 1, 50):
-                    port = get_cc2650_port()
-                    if port:
-                        self._ti_port.setText(port)
-                    while not self._ti_port.text():
-                        qm = QMessageBox()
-                        ret = qm.question(self, "Ação necessária",
-                                          "Por favor, conecte a controladora CC2650 em uma porta USB, aguarde 10 "
-                                          "segundos e clique no botão OK abaixo.", qm.Ok | qm.Cancel)
-                        if ret == qm.Ok:
-                            port = get_cc2650_port()
-                            if port:
-                                self._ti_port.setText(port)
-                        else:
-                            break
-                    if self._ti_port.text():
-                        logger.debug("[CalibrationTool] Serial port set to {}.".format(self._ti_port.text()))
-                        global _repository
-                        db_ready = False
-                        if _repository['finished'] and get_count_db() > 0:
+                    logger.debug("[CalibrationTool] scales end = '{}'".format(self._ti_scale_end.text()))
+                    if self.validate_input_float(self._ti_scale_end, self._lb_scale.text(), 1.0, 1000.0):
+                        port = get_cc2650_port()
+                        if port:
+                            self._ti_port.setText(port)
+                        while not self._ti_port.text():
                             qm = QMessageBox()
                             ret = qm.question(self, "Ação necessária",
-                                              "Esta ferramenta já foi executada e o banco de dados já contem "
-                                              "informação. Deseja sobrescrever estes dados?", qm.Yes | qm.No)
-                            if ret == qm.Yes:
-                                if clear_db():
-                                    db_ready = True
-                                else:
-                                    self.show_error("Não foi possível apagar o banco de dados. "
-                                                    "Por favor, verifique os logs da aplicação.")
-                        else:
-                            db_ready = True
-                        if db_ready:
-                            _repository['num_sensors'] = self._ti_num_sensors.text()
-                            _repository['sample_count'] = self._ti_samples.text()
-                            _repository['scale_interval'] = self._ti_scale.text()
-                            if not save_repository():
-                                self.show_error("Não foi possível salvar o repositório de dados. "
-                                                "Por favor, verifique os logs da aplicação.")
-                                self.togle_start_widgets(False)
+                                              "Por favor, conecte a controladora CC2650 em uma porta USB, aguarde 10 "
+                                              "segundos e clique no botão OK abaixo.", qm.Ok | qm.Cancel)
+                            if ret == qm.Ok:
+                                port = get_cc2650_port()
+                                if port:
+                                    self._ti_port.setText(port)
                             else:
-                                QApplication.processEvents()
-                                self._bt_save.setDisabled(True)
-                                if self._table.rowCount() > 0 and _repository['finished']:
-                                    self._table.setRowCount(0)
-                                self._messages.clear()
-                                self.perform_calibration()
+                                break
+                        if self._ti_port.text():
+                            logger.debug("[CalibrationTool] Serial port set to {}.".format(self._ti_port.text()))
+                            global _repository
+                            db_ready = False
+                            if _repository['finished'] and get_count_db() > 0:
+                                qm = QMessageBox()
+                                ret = qm.question(self, "Ação necessária",
+                                                  "Esta ferramenta já foi executada e o banco de dados já contem "
+                                                  "informação. Deseja sobrescrever estes dados?", qm.Yes | qm.No)
+                                if ret == qm.Yes:
+                                    if clear_db():
+                                        db_ready = True
+                                    else:
+                                        self.show_error("Não foi possível apagar o banco de dados. "
+                                                        "Por favor, verifique os logs da aplicação.")
+                            else:
+                                db_ready = True
+                            if db_ready:
+                                _repository['num_sensors'] = self._ti_num_sensors.text()
+                                _repository['sample_count'] = self._ti_samples.text()
+                                _repository['scale_interval'] = self._ti_scale.text()
+                                _repository['scale_end'] = self._ti_scale_end.text()
+                                if not save_repository():
+                                    self.show_error("Não foi possível salvar o repositório de dados. "
+                                                    "Por favor, verifique os logs da aplicação.")
+                                    self.togle_start_widgets(False)
+                                else:
+                                    QApplication.processEvents()
+                                    self._bt_save.setDisabled(True)
+                                    if self._table.rowCount() > 0 and _repository['finished']:
+                                        self._table.setRowCount(0)
+                                    self._messages.clear()
+                                    self.perform_calibration()
+                            else:
+                                self.togle_start_widgets(False)
                         else:
                             self.togle_start_widgets(False)
-                    else:
-                        self.togle_start_widgets(False)
 
     @pyqtSlot()
     def on_click_save_results(self):
@@ -576,7 +614,7 @@ class CalibrationTool(QWidget):
             with open('./' + csv_filename, 'w', newline='') as csvfile:
                 spamwriter = csv.writer(csvfile, delimiter=';',
                                         quotechar='"', quoting=csv.QUOTE_ALL)
-                header = ["id", "sensor", "amostra", "escala", "valor"]
+                header = ["id", "sensor", "amostra", "escala", "peso", "valor"]
                 spamwriter.writerow(header)
                 all_readings = get_all_readings()
                 if all_readings:
@@ -595,35 +633,40 @@ class CalibrationTool(QWidget):
         self._bt_save.setDisabled(True)
         self.togle_start_widgets(False)
 
-    def set_config(self, num_sensors: int, samples: int, scales: int, disable_inputs: bool = True):
+    def set_config(self, num_sensors: int, samples: int, scales: int, scales_end: float, disable_inputs: bool = True):
         self._ti_num_sensors.setText(str(num_sensors))
         self._ti_samples.setText(str(samples))
         self._ti_scale.setText(str(scales))
+        self._ti_scale_end.setText(str(scales_end))
         if disable_inputs:
             self._ti_num_sensors.setDisabled(True)
             self._ti_samples.setDisabled(True)
             self._ti_scale.setDisabled(True)
+            self._ti_scale_end.setDisabled(True)
 
     def add_message(self, message: str):
         self._messages.append(message)
         self._messages.moveCursor(QTextCursor.End)
 
-    def add_line_to_table(self, sensor: str, sample: str, scale: str, value: str):
+    def add_line_to_table(self, sensor: str, sample: str, scale: str, weight: str, value: str):
         r = self._table.rowCount()
         self._table.insertRow(r)
         self._table.setRowHeight(r, 12)
         sensor_item = QTableWidgetItem(sensor)
         sample_item = QTableWidgetItem(sample)
         scale_item = QTableWidgetItem(scale + " %")
+        weight_item = QTableWidgetItem(weight)
         value_item = QTableWidgetItem(value)
         sensor_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
         sample_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         scale_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        weight_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         value_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self._table.setItem(r, 0, sensor_item)
         self._table.setItem(r, 1, sample_item)
         self._table.setItem(r, 2, scale_item)
-        self._table.setItem(r, 3, value_item)
+        self._table.setItem(r, 3, weight_item)
+        self._table.setItem(r, 4, value_item)
         item = self._table.item(r, 0)
         self._table.scrollToItem(item, QAbstractItemView.PositionAtBottom)
 
@@ -632,16 +675,16 @@ class CalibrationTool(QWidget):
         if all_readings:
             for reading in all_readings:
                 self.add_line_to_table("Sensor " + str(reading['sensor']), str(reading['sample']),
-                                       str(reading['scale']), str(reading['value']))
+                                       str(reading['scale']), str(reading['weight']), str(reading['value']))
             self._bt_save.setDisabled(False)
             item = self._table.item(0, 0)
             self._table.scrollToItem(item, QAbstractItemView.PositionAtTop)
 
-    def add_reading_to_table(self, sensors_reading: dict, num_sensors: int, sample: int, scale: int):
+    def add_reading_to_table(self, sensors_reading: dict, num_sensors: int, sample: int, scale: int, weight: float):
         for i in range(1, (num_sensors + 1)):
             key = "s{}".format(i)
             sensor_name = "Sensor {}".format(i)
-            self.add_line_to_table(sensor_name, str(sample), str(scale), str(sensors_reading[key]))
+            self.add_line_to_table(sensor_name, str(sample), str(scale), str(weight), str(sensors_reading[key]))
 
     def confirm_reading(self, sensors_reading: dict) -> bool:
         result = False
@@ -686,6 +729,17 @@ class CalibrationTool(QWidget):
                 result = {}
         return result
 
+    def ask_weight(self, sample: int, scale: int) -> float:
+        result = -1.0
+        while True:
+            result, ok_pressed = QInputDialog.getDouble(self, "Peso da amostra",
+                                                        "Informe o peso da amostra {} com {}% de água: ".format(
+                                                            sample, scale),
+                                                        0.0, 1.0, 1000.0, 1)
+            if ok_pressed:
+                break
+        return float(result)
+
     def perform_calibration(self):
         logger.debug("[CalibrationTool] Starting calibration...")
         self._bt_cancel.setDisabled(False)
@@ -697,16 +751,18 @@ class CalibrationTool(QWidget):
         self._create_reading_thread()
         error_found = False
         sensors_reading = {}
-        for i in range(start_i, (100 + int(self._ti_scale.text())), int(self._ti_scale.text())):
+        for i in range(start_i, (int(self._ti_scale_end.text()) + int(self._ti_scale.text())),
+                       int(self._ti_scale.text())):
             for j in range(start_j, (int(self._ti_samples.text()) + 1)):
+                weight = self.ask_weight(j, i)
                 while not self._cancelling_requested:
                     sensors_reading = {}
                     while not sensors_reading and (not self._cancelling_requested):
                         if not self._reading_thread.is_alive():
                             self._reading_thread.start()
                         logger.debug(
-                            "[CalibrationTool] Waiting reading for sample {} with {}% humidity...".format(j, i))
-                        self.add_message("Aguardando leitura para amostra {} com {}% de umidade...".format(j, i))
+                            "[CalibrationTool] Waiting reading for sample {} with {}% water...".format(j, i))
+                        self.add_message("Aguardando leitura para amostra {} com {}% de água...".format(j, i))
                         self._messages.setFocus()
                         reading = ""
                         while not reading and (not self._cancelling_requested):
@@ -719,7 +775,7 @@ class CalibrationTool(QWidget):
                     if self._cancelling_requested:
                         break
                     logger.debug("[CalibrationTool] Value read: {}".format(sensors_reading))
-                    self.add_message("Leitura: {}".format(sensors_reading))
+                    self.add_message("Leitura: {}\n".format(sensors_reading))
                     if self.confirm_reading(sensors_reading):
                         logger.debug("[CalibrationTool] Value accepted!")
                         break
@@ -727,11 +783,11 @@ class CalibrationTool(QWidget):
                         logger.debug("[CalibrationTool] Value rejected!")
                 if self._cancelling_requested:
                     break
-                if save_reading(j, i, sensors_reading, int(self._ti_num_sensors.text())):
+                if save_reading(j, i, weight, sensors_reading, int(self._ti_num_sensors.text())):
                     _repository['finished'] = False
                     _repository['i'] = i
                     _repository['j'] = (j + 1)
-                    self.add_reading_to_table(sensors_reading, int(self._ti_num_sensors.text()), j, i)
+                    self.add_reading_to_table(sensors_reading, int(self._ti_num_sensors.text()), j, i, weight)
                     if not save_repository():
                         self.show_error("Não foi possível salvar o repositório de dados. "
                                         "Por favor, verifique os logs da aplicação.")
@@ -797,10 +853,11 @@ def main():
         window = CalibrationTool()
         if not _repository['finished']:
             window.set_config(_repository['num_sensors'], _repository['sample_count'],
-                              _repository['scale_interval'])
+                              _repository['scale_interval'], _repository['scale_end'])
         else:
             window.set_config(prefs['application']['default_num_sensors'], prefs['application']['default_samples'],
-                              prefs['application']['default_scale'], disable_inputs=False)
+                              prefs['application']['default_scale'], prefs['application']['default_scale_end'],
+                              disable_inputs=False)
         window.load_table()
         window.show()
         window.setFixedSize(window.width(), window.height())

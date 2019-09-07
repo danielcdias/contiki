@@ -1,17 +1,18 @@
 {
-  "logging": {
+    "logging": {
         "name": "sensors-calibration-app",
         "folder": "./log",
         "filename": "sensors-calibration-app.log",
         "console_level": "DEBUG",
         "file_level": "DEBUG"
-  },
-  "application": {
-    "default_num_sensors": 3,
-    "default_samples": 20,
-    "default_scale": 5
-  },
-  "control-board": {
-    "usb-port-description-start-with": "XDS110 Class Application/User UART"
-  }
+    },
+    "application": {
+        "default_num_sensors": 3,
+        "default_samples": 3,
+        "default_scale": 10,
+        "default_scale_end": 150
+    },
+    "control-board": {
+        "usb-port-description-start-with": "XDS110 Class Application/User UART"
+    }
 }
