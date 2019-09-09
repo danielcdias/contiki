@@ -3,16 +3,13 @@
 # pip install -r requirements.txt
 echo "********** Waiting database get ready..."
 python wait_for_db.py db $MYSQL_USER $MYSQL_PASSWORD $MYSQL_DATABASE 12 5 "SELECT version()"
-ping6 -c 3 tv-cwb-iot.mooo.com
-if [ $? = 0 ]; then
-   echo "********** Running Django makemigrations command..."
-   python manage.py makemigrations
-   echo "********** Running Django migrate command..."
-   python manage.py migrate
-   echo "********** Running Django collectstatic command..."
-   python manage.py collectstatic --no-input
-   # python manage.py collectstatic -link --noinput
-   chmod 777 /app/static -R
-   echo "********** Running Django server..."
-   python manage.py runserver 0.0.0.0:8000
-fi
+ echo "********** Running Django makemigrations command..."
+ python manage.py makemigrations
+ echo "********** Running Django migrate command..."
+ python manage.py migrate
+ echo "********** Running Django collectstatic command..."
+ python manage.py collectstatic --no-input
+ # python manage.py collectstatic -link --noinput
+ chmod 777 /app/static -R
+ echo "********** Running Django server..."
+ python manage.py runserver 0.0.0.0:8000
