@@ -1,5 +1,3 @@
-import sys
-
 from django.conf.urls import include
 from django.contrib import admin
 from django.urls import path
@@ -7,13 +5,10 @@ from rest_framework import routers
 
 from config.expiring_token import obtain_expiring_auth_token
 from model.api.viewsets import BoardVendorViewSet, BoardModelViewSet, ControlBoardViewSet, SensorTypeViewSet, \
-    SensorViewSet, SensorReadEventViewSet, NotificationUserViewSet, MQTTConnectionViewSet, \
-    ControlBoardEventViewSet, ConnectionStatusViewSet
-from model.bridge import mqtt_bridge
+    SensorViewSet, SensorReadEventViewSet, NotificationUserViewSet, \
+    ControlBoardEventViewSet, message_receiver
 
 router = routers.DefaultRouter()
-router.register(r'mqttconnections', MQTTConnectionViewSet, basename="MQTTConnection")
-router.register(r'connectionstatus', ConnectionStatusViewSet, basename="ConnectionStatus")
 router.register(r'boardvendors', BoardVendorViewSet, basename="BoardVendor")
 router.register(r'boardmodels', BoardModelViewSet, basename="BoardModel")
 router.register(r'controlboards', ControlBoardViewSet, basename="ControlBoard")
@@ -26,9 +21,7 @@ router.register(r'notificationusers', NotificationUserViewSet, basename="Notific
 urlpatterns = [
     path('', include('model.urls')),
     path('', include(router.urls)),
+    path('message_receiver/', message_receiver),
     path('admin/', admin.site.urls),
     path('api-token-auth/', obtain_expiring_auth_token),
 ]
-
-if sys.argv[1] == "runserver":
-    mqtt_bridge.run()

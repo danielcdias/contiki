@@ -9,8 +9,7 @@ https://docs.djangoproject.com/en/2.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
-
-import os
+import ast
 import os.path
 
 SITE_ROOT = os.path.dirname(os.path.realpath(__file__))
@@ -18,16 +17,17 @@ SITE_ROOT = os.path.dirname(os.path.realpath(__file__))
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Default DB configuration
+DEFAULT_DB_CONFIG = {'ENGINE': 'django.db.backends.sqlite3', 'NAME': 'db.sqlite3', }
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = '2+pdkppe%fx9+6j$p&b(zt2mu++b%uk3bv!y3e#uxda(2lrj$f'
+SECRET_KEY = os.environ.get('IOT_DJANGO_SECRET_KEY', '2+pdkppe%fx9+6j$p&b(zt2mu++b%uk3bv!y3e#uxda(2lrj$f')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('IOT_DJANGO_DEBUG', False)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.environ.get('IOT_DJANGO_ALLOWED_HOSTS', [])
 
 # Application definition
 
@@ -77,11 +77,12 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+db_config = os.environ.get('IOT_DJANGO_DB_CONFIG', DEFAULT_DB_CONFIG)
+if isinstance(db_config, str):
+    db_config = ast.literal_eval(db_config)
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
-    }
+    'default': db_config
 }
 
 # Password validation
@@ -118,7 +119,15 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.2/howto/static-files/
 
+STATIC_ROOT = '/app/static'
 STATIC_URL = '/static/'
+
+# List of finder classes that know how to find static files in
+# various locations.
+STATICFILES_FINDERS = (
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+)
 
 REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': ('django_filters.rest_framework.DjangoFilterBackend',),
@@ -126,51 +135,51 @@ REST_FRAMEWORK = {
 }
 
 LOGGING = {
-'version': 1,
-'disable_existing_loggers': False,
-'formatters': {
-    'standard': {
-        'format': "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)s] %(message)s",
-        'datefmt': "%Y-%m-%d %H:%M:%S"
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)s] %(message)s",
+            'datefmt': "%Y-%m-%d %H:%M:%S"
+        },
     },
-},
-'handlers': {
-    'file': {
-        'level': 'DEBUG',
-        'class': 'logging.handlers.RotatingFileHandler',
-        'filename': 'logs/tv-cwb-django.log',
-        'maxBytes': 1024 * 1024 * 5,  # 5 MB
-        'backupCount': 50,
-        'formatter': 'standard',
+    'handlers': {
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': 'logs/tv-cwb-django.log',
+            'maxBytes': 1024 * 1024 * 5,  # 5 MB
+            'backupCount': 50,
+            'formatter': 'standard',
+        },
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
     },
-    'console': {
-        'class': 'logging.StreamHandler',
-        'formatter': 'standard',
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'console', ],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'tvcwb': {
+            'handlers': ['file', 'console', ],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
     },
-},
-'loggers': {
-    'django': {
-        'handlers': ['file', 'console', ],
-        'level': 'INFO',
-        'propagate': True,
-    },
-    'tvcwb': {
-        'handlers': ['file', 'console', ],
-        'level': 'DEBUG',
-        'propagate': True,
-    },
-},
 }
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 
 # Host for sending e-mail.
-EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_HOST = os.environ.get('IOT_DJANGO_EMAIL_HOST')
 
 # Port for sending e-mail.
-EMAIL_PORT = 587
+EMAIL_PORT = os.environ.get('IOT_DJANGO_EMAIL_PORT')
 
 # Optional SMTP authentication information for EMAIL_HOST.
-EMAIL_HOST_USER = 'daniel.dias@gmail.com'
-EMAIL_HOST_PASSWORD = 'azrjnhmedousqwvq'
-EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.environ.get('IOT_DJANGO_EMAIL_USER')
+EMAIL_HOST_PASSWORD = os.environ.get('IOT_DJANGO_EMAIL_PASS')
+EMAIL_USE_TLS = os.environ.get('IOT_DJANGO_EMAIL_USE_TLS')

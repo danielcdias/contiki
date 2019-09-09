@@ -4,16 +4,16 @@ from django.utils import timezone
 from django.http import StreamingHttpResponse
 from django.views import generic
 
-from .models import MQTTConnection, SensorReadEvent
+from .models import SensorReadEvent
 from model import data_analyzer as analyzer
 
+# TODO Arrumar index.html
+# class IndexView(generic.ListView):
+#     template_name = 'model/index.html'
+#     context_object_name = 'hosts_list'
+#     queryset = ?
 
-class IndexView(generic.ListView):
-    template_name = 'model/index.html'
-    context_object_name = 'hosts_list'
-    queryset = MQTTConnection.objects.all()
-
-
+# TODO Verificar se é necessário
 class Echo:
     """An object that implements just the write method of the file-like
     interface.

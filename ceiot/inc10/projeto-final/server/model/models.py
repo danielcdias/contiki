@@ -13,47 +13,6 @@ def check_mac_address(value):
         )
 
 
-class MQTTConnection(models.Model):
-    hostname = models.CharField(max_length=200, unique=True, verbose_name="Hostname")
-    port = models.IntegerField(verbose_name="Port")
-    connection_timeout = models.IntegerField(default=60, verbose_name="Connection timeout")
-
-    objects = models.Manager()
-
-    def __str__(self):
-        return "{}:{}".format(self.hostname, self.port)
-
-    @property
-    def last_status(self):
-        host = self.connectionstatus_set.all().order_by('-timestamp')[0]
-        if not host:
-            host = ConnectionStatus.DISCONNECTED
-        return host.host_status
-
-
-class ConnectionStatus(models.Model):
-    CONNECTED = 0
-    DISCONNECTED = 1
-
-    HostStatus = (
-        (CONNECTED, 'connected'),
-        (DISCONNECTED, 'disconnected'),
-    )
-
-    timestamp = models.DateTimeField(auto_now=True)
-    host_status = models.IntegerField(verbose_name='Connection status', choices=HostStatus)
-    host_connection = models.ForeignKey(MQTTConnection, on_delete=models.CASCADE, verbose_name="MQTTConnection")
-
-    objects = models.Manager()
-
-    @property
-    def host_connection_description(self):
-        return "{}".format(self.HostStatus[self.host_status][1])
-
-    def __str__(self):
-        return "{} is {}".format(self.host_connection.hostname, self.host_connection_description)
-
-
 class BoardVendor(models.Model):
     description = models.CharField(max_length=100, unique=True, verbose_name="Description")
 
