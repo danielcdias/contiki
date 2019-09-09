@@ -329,10 +329,10 @@ static uint32_t get_current_timestamp() {
    return base_timestamp_from_server + (clock_seconds() - base_clock_seconds);
 }
 
-static void publish_board_status(char data[20]) {
+static void publish_board_status(char data[50]) {
    set_green_led(GREEN_LED_SENDING_MESSAGE);
    static uint8_t buf_len;
-   static char buf[32] = "\0";
+   static char buf[64] = "\0";
    if ((strcmp(BOARD_STATUS_STARTED, data)) && (strcmp(BOARD_STATUS_TIMESTAMP_UPDATE_REQUEST, data))) {
       sprintf(buf, MESSAGE_BOARD_FORMAT, data, get_current_timestamp());
    } else {
@@ -351,7 +351,7 @@ static void publish_board_status(char data[20]) {
 
 static void publish_sensor_status(const uint8_t topic_index, int data) {
    set_green_led(GREEN_LED_SENDING_MESSAGE);
-   static char buf[20] = "\0";
+   static char buf[64] = "\0";
    static uint8_t buf_len;
    sprintf(buf, MESSAGE_STATUS_FORMAT, data, get_current_timestamp());
    PRINTF("Publishing at topic: %s -> msg: %s\n", pub_sensors_topic[topic_index].topic, buf);
