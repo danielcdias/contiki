@@ -54,7 +54,7 @@
 #define STATUS_TYPE_BOARD 0
 #define STATUS_TYPE_SENSORS 1
 
-#define MAIN_HEADER_BLOCK_MAP_PAGES 8
+#define MAIN_HEADER_MAP_BLOCKS_PAGES 8
 
 #define GOOD 0
 #define BAD 1
@@ -73,7 +73,7 @@ typedef struct _ct_main_header_t {
    char tag[4];
    uint8_t init_data_block;
    uint8_t next_free_block;
-   bitmap_word_t block_map[MAIN_HEADER_BLOCK_MAP_PAGES];
+   bitmap_word_t block_map[MAIN_HEADER_MAP_BLOCKS_PAGES];
 } ct_main_header_t;
 MEMB(alloc_ct_main_header, ct_main_header_t, 2);
 typedef struct _fd_main_header_t {
@@ -414,7 +414,7 @@ PROCESS_THREAD(testFlash, ev, data) {
                         printf("main_header->next_free_block: %u\n",
                                main_header_reader->next_free_block);
                         static uint8_t i;
-                        for (i = 0; i < MAIN_HEADER_BLOCK_MAP_PAGES; i++) {
+                        for (i = 0; i < MAIN_HEADER_MAP_BLOCKS_PAGES; i++) {
                            printf("header->block_map      : %lu\n",
                                   main_header_reader->block_map[i]);
                         }
