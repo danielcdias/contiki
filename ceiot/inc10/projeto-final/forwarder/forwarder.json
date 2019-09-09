@@ -1,0 +1,46 @@
+{
+    "logging": {
+        "name": "TV-CWB-IOT Forwarder",
+        "folder": "./log",
+        "filename": "forwarder.log",
+        "console_level": "DEBUG",
+        "file_level": "DEBUG"
+    },
+    "mqtt": {
+        "connection": {
+            "host": "tv-cwb-iot.mooo.com",
+            "port": 1883,
+            "timeout": 60,
+            "client-id": "TV-CWB-IOT_Forwarder"
+        },
+        "topics": {
+            "status": "/tvcwb1299/mmm/sta/#",
+            "command": "/tvcwb1299/mmm/cmd/"
+        },
+        "commands": {
+            "timestamp": "T"
+        },
+        "status": {
+            "startup": "STT",
+            "timestamp-update-request": "TUR"
+        }
+    },
+    "web-service": {
+        "base_url": "http://127.0.0.1:8000/",
+        "get_token_service": "api-token-auth/",
+        "username": "ENC(eJzLN9EOSU3JMikw9KosKC91do1MLo2sSPLQz/DPDXNJjsxPLyv28YioLPWzdU3OctG39Ml3DqpwdwlNDinI8C4PD3S1tQ0wLrU0K8t2KStwjzQxdHQzNLcMTPewtS20MPIAAD5CH6U=)",
+        "password": "ENC(eJzzdyzxzAr1CvQ3CSyPLDQPSwmKtMxJMQkpjfANSXLKqcx0M6owLzEv9wq1DY0sTiw0jgyttDCIck0KDMzyCUyqckyztXX3CqkMTy5wd/fOLEspDAksNHRJSXeztXUuisq1NE7xN44IySop880CAL3rJHs=)",
+        "message_receiver_service": "message_receiver/"
+    },
+    "email": {
+        "host": "smtp.gmail.com",
+        "port": 587,
+        "user": "ENC(eJwLcit3y04OLfXLSS72CIswKSvLNzTKc42qNEjUroowzSwKMI5ydbG0sKiwdUxNynGvqIwqNXQOcnFNdQkwDoxIcQy3tc1wScqNzDMwcnIqcfItLvJ1MXSOSje2tc32Lg/Kzigt0E4PDonQ9vOKNA0OS9QPtSgKKTcDAGuBJzg=)",
+        "pass": "ENC(eJwFwcEOgiAYAOAH4qAU0Dr8B5kU0Yo6EMqtJKY1Imcb5dP3faMJV+GCOFin++KsWtfxlb2wjdiVuVmY+YGHU6ZHSyEj5rcIqVjOPr1ZkvumuGcM8OTr73LAnmqWPyG/FOn76geAkpkIJ6bWsXM3U0c5jZUE+AN6fCUt)",
+        "use_tls": true,
+        "subject": "[Django Forwarder] *** ERRO *** Terraço Verde IoT",
+        "from": "daniel.dias@gmail.com",
+        "to": "daniel.dias@gmail.com",
+        "notification_timeout": 60
+    }
+}
