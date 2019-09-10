@@ -1,7 +1,5 @@
 version: '3'
 volumes:
-  migrations:
-    driver: local
   static_files:
     driver: local
 services:
@@ -16,13 +14,9 @@ services:
     #  - MYSQL_PASSWORD=changeme
     #  - TERM=xterm
     restart: unless-stopped
-    ports:
-      - "3306:3306"
     volumes:
       - ./db/mariadb:/var/lib/mysql
     command: 'mysqld --innodb-flush-method=fsync'
-    networks:
-      - db_net
   app:
     build: app
     restart: unless-stopped
@@ -51,24 +45,10 @@ services:
     depends_on:
       - db
     volumes:
-      - migrations:/app/model/migrations
+      - ./migrations:/app/model/migrations
       - static_files:/app/static
     labels: 
       traefik.frontend.rule: Host:tv-cwb-iot.terracoverde.eco.br
       traefik.frontend.priority: '1'
       traefik.port: '8000'
       traefik.enable: 'true'
-    networks:
-      - db_net
-      - app_net
-networks:
-  app_net:
-    driver_opts:
-      com.docker.network.enable_ipv6: "true"
-    ipam:
-      driver: default
-  db_net:
-    driver_opts:
-      com.docker.network.enable_ipv6: "true"
-    ipam:
-      driver: default
