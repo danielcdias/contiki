@@ -1,5 +1,6 @@
 *.a
 *.o
+*.bak
 *.bin
 *.map
 *.log

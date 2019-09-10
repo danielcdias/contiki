@@ -1,14 +1,12 @@
 version: '3'
 volumes:
-  migrations:
-    driver: local
   static_files:
     driver: local
 services:
   db:
     image: mariadb:10.4
     env_file:
-      - ./db/.db_env
+      - ./db/db.env
     #environment:
     #  - MYSQL_ROOT_PASSWORD=changeme
     #  - MYSQL_USER=changeme
@@ -16,13 +14,9 @@ services:
     #  - MYSQL_PASSWORD=changeme
     #  - TERM=xterm
     restart: unless-stopped
-    ports:
-      - "3306:3306"
     volumes:
       - ./db/mariadb:/var/lib/mysql
     command: 'mysqld --innodb-flush-method=fsync'
-    networks:
-      - db_net
   app:
     build: app
     restart: unless-stopped
@@ -30,7 +24,7 @@ services:
       - "8000:8000"
     working_dir: /app
     env_file:
-      - ./app/.app_env
+      - ./app/app.env
     #environment:
     #  - IOT_DJANGO_SECRET_KEY=changeme
     #  - IOT_DJANGO_ALLOWED_HOSTS=changeme
@@ -51,24 +45,10 @@ services:
     depends_on:
       - db
     volumes:
-      - migrations:/app/model/migrations
+      - ./migrations:/app/model/migrations
       - static_files:/app/static
     labels: 
       traefik.frontend.rule: Host:tv-cwb-iot.terracoverde.eco.br
       traefik.frontend.priority: '1'
       traefik.port: '8000'
       traefik.enable: 'true'
-    networks:
-      - db_net
-      - app_net
-networks:
-  app_net:
-    driver_opts:
-      com.docker.network.enable_ipv6: "true"
-    ipam:
-      driver: default
-  db_net:
-    driver_opts:
-      com.docker.network.enable_ipv6: "true"
-    ipam:
-      driver: default
