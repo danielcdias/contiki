@@ -2,6 +2,9 @@ version: '3'
 volumes:
   static_files:
     driver: local
+networks:
+  web:
+    external: true
 services:
   db:
     image: mariadb:10.4
@@ -40,15 +43,27 @@ services:
     #  - MYSQL_USER=changeme
     #  - MYSQL_DATABASE=changeme
     #  - MYSQL_PASSWORD=changeme
-    #command: python manage.py runserver 0.0.0.0:8000
-    command: ./start-django.sh
+    command: /bin/sh ./start-django.sh
     depends_on:
       - db
     volumes:
-      - ./migrations:/app/model/migrations
       - static_files:/app/static
     labels: 
       traefik.frontend.rule: Host:tv-cwb-iot.terracoverde.eco.br
       traefik.frontend.priority: '1'
       traefik.port: '8000'
       traefik.enable: 'true'
+      traefik.docker.network: 'web'
+    networks:
+      - web
+      - default
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    environment:
+     - PMA_ARBITRARY=1
+    restart: always
+    ports:
+     - "8080:80"
+    volumes:
+     - /sessions
