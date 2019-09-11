@@ -1,8 +1,5 @@
 *.pyc
 **/.idea/
 *.sqlite3
-model/migrations/*.py
-!model/migrations/0001_initial.py
-!model/migrations/__init__.py
 /static
 /logs
