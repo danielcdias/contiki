@@ -63,7 +63,14 @@ services:
     environment:
      - PMA_ARBITRARY=1
     restart: always
-    ports:
-     - "8080:80"
     volumes:
      - /sessions
+    labels: 
+      traefik.frontend.rule: Host:db-tv-cwb-iot.terracoverde.eco.br
+      traefik.frontend.priority: '1'
+      traefik.port: '8080'
+      traefik.enable: 'true'
+      traefik.docker.network: 'web'
+    networks:
+      - web
+      - default
