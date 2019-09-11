@@ -52,7 +52,13 @@ PROCESS_THREAD(calibrateMoistureSensor, ev, data) {
           s1 = readADSMoistureSensor(MOISTURE_SENSOR_1);
           s2 = readADSMoistureSensor(MOISTURE_SENSOR_2);
           s3 = readADSMoistureSensor(MOISTURE_SENSOR_3);
-          printf("{'s1':%lu,'s2':%lu,'s3':%lu}\n", s1, s2, s3);
+
+          if ((s1 > 0) && (s2 > 0) && (s3 > 0)) {
+             printf("{'s1':%lu,'s2':%lu,'s3':%lu}\n", s1, s2, s3);
+          } else {
+             printf("{'message':'reading error'}\n");
+          }
+
        }
 
     }
