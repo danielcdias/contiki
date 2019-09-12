@@ -23,8 +23,6 @@ services:
   app:
     build: app
     restart: unless-stopped
-    ports:
-      - "8000:8000"
     working_dir: /app
     env_file:
       - ./app/app.env
@@ -48,12 +46,13 @@ services:
       - db
     volumes:
       - static_files:/app/static
-    labels: 
+    labels:
       traefik.frontend.rule: Host:tv-cwb-iot.terracoverde.eco.br
       traefik.frontend.priority: '1'
       traefik.port: '8000'
       traefik.enable: 'true'
       traefik.docker.network: 'web'
+      traefik.frontend.redirect.entryPoint: 'https'
     networks:
       - web
       - default
@@ -61,16 +60,17 @@ services:
     image: phpmyadmin/phpmyadmin
     container_name: phpmyadmin
     environment:
-     - PMA_ARBITRARY=1
-    restart: always
+      - PMA_ARBITRARY=1
+    restart: unless-stopped
     volumes:
-     - /sessions
-    labels: 
-      traefik.frontend.rule: Host:db-tv-cwb-iot.terracoverde.eco.br
+      - ./db/phpmyadmin/sessions:/sessions
+    labels:
+      traefik.frontend.rule: Host:db.tv-cwb-iot.terracoverde.eco.br
       traefik.frontend.priority: '1'
-      traefik.port: '8080'
+      traefik.port: '80'
       traefik.enable: 'true'
       traefik.docker.network: 'web'
+      traefik.frontend.redirect.entryPoint: 'https'
     networks:
       - web
       - default
