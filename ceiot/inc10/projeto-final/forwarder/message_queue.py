@@ -1,10 +1,7 @@
 import os
 import sqlite3 as sqlite
 
-from prefs import log_factory
-
-DB_FOLDER = "." + os.sep + "db"
-DB_FILE = DB_FOLDER + os.sep + "message-queue.db"
+from prefs import log_factory, prefs
 
 FLAG_NOT_SENT = 0
 FLAG_SENT = 1
@@ -22,17 +19,25 @@ DB_TABLE_COUNT_NOT_SENT = "SELECT COUNT(*) FROM message_queue WHERE sent_flag = 
 
 DB_TABLE_UPDATE_FLAG_SENT = "UPDATE message_queue SET sent_flag = {} WHERE id = ?".format(FLAG_SENT)
 
-logger = log_factory.get_new_logger("message queue")
+logger = None
+
+
+def get_logger():
+    global logger
+    if not logger:
+        logger = log_factory.get_new_logger("message_queue")
+    return logger
 
 
 def check_db():
-    if not os.path.exists(DB_FILE):
-        os.mkdir(DB_FOLDER)
-    if not os.path.exists(DB_FILE):
+    if not os.path.exists(prefs['db']['folder']):
+        os.mkdir(prefs['db']['folder'])
+    db_file = prefs['db']['folder'] + os.sep + prefs['db']['file']
+    if not os.path.exists(db_file):
         try:
-            conn = sqlite.connect(DB_FILE)
+            conn = sqlite.connect(db_file)
             try:
-                conn = sqlite.connect(DB_FILE)
+                conn = sqlite.connect(db_file)
                 cursor = conn.cursor()
                 cursor.execute(DB_TABLE_CHECK)
                 row = cursor.fetchone()
@@ -45,12 +50,12 @@ def check_db():
                     cursor.execute(DB_TABLE_CREATE)
                     cursor.close()
                 else:
-                    logger.error(
+                    get_logger().error(
                         "Could not create the database (1). Exception: {}".format(ex))
             finally:
                 conn.close()
         except Exception as ex:
-            logger.error(
+            get_logger().error(
                 "Could not create the database (2). Exception: {}".format(ex))
 
 
@@ -58,15 +63,16 @@ def connect() -> sqlite.Connection:
     result = None
     check_db()
     try:
-        result = sqlite.connect(DB_FILE)
+        db_file = prefs['db']['folder'] + os.sep + prefs['db']['file']
+        result = sqlite.connect(db_file)
     except Exception as ex:
-        logger.error(
+        get_logger().error(
             "Could not connect to the database. Exception: {}".format(ex))
     return result
 
 
 def add_message(topic: str, payload: str) -> bool:
-    logger.debug("Adding message to database: topic: {}, payload: {}.".format(topic, payload))
+    get_logger().debug("Adding message to database: topic: {}, payload: {}.".format(topic, payload))
     result = False
     conn = connect()
     try:
@@ -78,10 +84,10 @@ def add_message(topic: str, payload: str) -> bool:
             cursor.close()
             result = True
         else:
-            logger.error(
+            get_logger().error(
                 "Could not insert data in the database.")
     except Exception as ex:
-        logger.error(
+        get_logger().error(
             "Could not insert data in the database. Exception: {}".format(ex))
         conn.rollback()
     finally:
@@ -104,7 +110,7 @@ def get_all_not_sent() -> list:
                 result.append(row_as_dict)
             cursor.close()
     except Exception as ex:
-        logger.error(
+        get_logger().error(
             "Could not read data from the database. Exception: {}".format(ex))
     finally:
         if conn:
@@ -122,7 +128,7 @@ def get_count_not_sent() -> int:
             result = cursor.fetchone()[0]
             cursor.close()
     except Exception as ex:
-        logger.error(
+        get_logger().error(
             "Could not read data from the database. Exception: {}".format(ex))
     finally:
         if conn:
@@ -142,10 +148,10 @@ def update_message_as_sent(id: int) -> bool:
             cursor.close()
             result = True
         else:
-            logger.error(
+            get_logger().error(
                 "Could not insert data in the database.")
     except Exception as ex:
-        logger.error(
+        get_logger().error(
             "Could not insert data in the database. Exception: {}".format(ex))
         conn.rollback()
     finally:

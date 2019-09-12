@@ -1,5 +1,6 @@
 import os
 
+from argparse import ArgumentParser
 from logging_tool import LoggerFactory
 from prefs_loader import Preferences
 
@@ -11,7 +12,14 @@ log_factory = None
 
 def _init():
     global prefs, log_factory
-    prefs = Preferences("." + os.sep + PREFS_JSON_FILENAME).get_preferences()
+    json_file = "." + os.sep + PREFS_JSON_FILENAME
+    parser = ArgumentParser()
+    parser.add_argument("-p", "--preferences",
+                        dest="preferences", help="JSON Preferences file", type=str)
+    args = parser.parse_args()
+    if args and args.preferences:
+        json_file = args.preferences
+    prefs = Preferences(json_file).get_preferences()
     log_factory = LoggerFactory(prefs['logging']['folder'],
                                 prefs['logging']['filename'], prefs['logging']['console_level'],
                                 prefs['logging']['file_level'])

@@ -8,7 +8,14 @@ from threading import Thread, Event
 
 stop_timer_flag = Event()  # Flag to stop timer if reconnection occurs before MQTT_DISCONNECTION_EMAIL_NOTIFY_TIMEOUT
 
-logger = log_factory.get_new_logger("mqtt_client")
+logger = None
+
+
+def get_logger():
+    global logger
+    if not logger:
+        logger = log_factory.get_new_logger("mqtt_client")
+    return logger
 
 
 class DisconnectionTimer(Thread):
@@ -34,16 +41,16 @@ class MQTTClient(Thread):
 
     def on_connect(self, client, userdata, flags, rc):
         stop_timer_flag.set()
-        logger.info("Connection started with {}, {}, {}, {}.".format(client, userdata, flags, rc))
+        get_logger().info("Connection started with {}, {}, {}, {}.".format(client, userdata, flags, rc))
 
     def on_disconnect(self, client, userdata, rc):
-        logger.warning("Connection finished with {}, {}, {}.".format(client, userdata, rc))
+        get_logger().warning("Connection finished with {}, {}, {}.".format(client, userdata, rc))
         stop_timer_flag.clear()
         thread = DisconnectionTimer(stop_timer_flag)
         thread.start()
 
     def on_message(self, client, userdata, message):
-        logger.debug("Message received from {}, {}, message: {}, {}, {}, {}.".format(client, userdata, message.topic,
+        get_logger().debug("Message received from {}, {}, message: {}, {}, {}, {}.".format(client, userdata, message.topic,
                                                                                      message.payload, message.qos,
                                                                                      message.retain))
         board_id = (message.topic[-8:-4] if len(message.topic) > 24 else message.topic[-4:])
@@ -56,15 +63,15 @@ class MQTTClient(Thread):
                         self.send_command(board_id, prefs['mqtt']['commands']['timestamp'],
                                           MQTTClient.get_time_in_seconds())
             else:
-                logger.error("Messsge received could not be saved in the queue.")
+                get_logger().error("Messsge received could not be saved in the queue.")
         else:
-            logger.warning("Payload received is not well formatted: {}.".format(payload))
+            get_logger().warning("Payload received is not well formatted: {}.".format(payload))
 
     def on_publish(self, client, userdata, mid):
-        logger.debug("Message published to {}, {}, {}.".format(client, userdata, mid))
+        get_logger().debug("Message published to {}, {}, {}.".format(client, userdata, mid))
 
     def on_subscribe(self, client, userdata, mid, granted_qos):
-        logger.debug("Subscribed {}, {}, {}, {}.".format(client, userdata, mid, granted_qos))
+        get_logger().debug("Subscribed {}, {}, {}, {}.".format(client, userdata, mid, granted_qos))
 
     def on_log(self, mqttc, obj, level, string):
         pass
@@ -73,7 +80,7 @@ class MQTTClient(Thread):
         return self.is_running
 
     def run(self):
-        logger.info("Starting MQTT client...")
+        get_logger().info("Starting MQTT client...")
         connected = False
         email_sent = False
         while True:
@@ -86,7 +93,7 @@ class MQTTClient(Thread):
                     self.mqttc_cli.on_disconnect = self.on_disconnect
                     self.mqttc_cli.on_log = self.on_log
                     self.mqttc_cli.reconnect_delay_set(min_delay=1, max_delay=30)
-                    logger.debug("Connecting to MQTT broker on {}:{}, with timeout = {}.".format(
+                    get_logger().debug("Connecting to MQTT broker on {}:{}, with timeout = {}.".format(
                         prefs['mqtt']['connection']['host'], prefs['mqtt']['connection']['port'],
                         prefs['mqtt']['connection']['timeout']))
                     self.mqttc_cli.connect(prefs['mqtt']['connection']['host'], prefs['mqtt']['connection']['port'],
@@ -103,7 +110,7 @@ class MQTTClient(Thread):
                                            to=prefs['email']['to'],
                                            body="Não foi possível conectar servidor ao broker MQTT.")
                         email_sent = True
-                    logger.error("Cannot connect to MQTT broker! Exception: {}".format(ex))
+                    get_logger().error("Cannot connect to MQTT broker! Exception: {}".format(ex))
             time.sleep(5)
 
     def send_command(self, board_id: str, cmd: str, value: int) -> bool:
@@ -111,11 +118,11 @@ class MQTTClient(Thread):
         try:
             buf = cmd + str(value)
             queue_cmd = prefs['mqtt']['topics']['command'] + board_id
-            logger.debug("Sending to queue {} - command {}".format(queue_cmd, buf))
+            get_logger().debug("Sending to queue {} - command {}".format(queue_cmd, buf))
             self.mqttc_cli.publish(queue_cmd, buf)
             result = True
         except (ValueError, ConnectionError, ConnectionRefusedError) as ex:
-            logger.exception("Cannot publish to command topic! Exception: {}".format(ex))
+            get_logger().exception("Cannot publish to command topic! Exception: {}".format(ex))
         return result
 
     @staticmethod

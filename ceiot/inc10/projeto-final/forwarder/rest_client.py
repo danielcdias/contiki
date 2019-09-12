@@ -12,7 +12,14 @@ TOKEN_VALUE_FORMAT = "Token {}"
 CONTENTTYPE_KEY = "Content-Type"
 CONTENTTYPE_VALUE = "application/json"
 
-logger = log_factory.get_new_logger("rest client")
+logger = None
+
+
+def get_logger():
+    global logger
+    if not logger:
+        logger = log_factory.get_new_logger("rest_client")
+    return logger
 
 
 class RESTClient(Thread):
@@ -31,7 +38,7 @@ class RESTClient(Thread):
             self._token = resp.json()['token']
             result = True
         else:
-            logger.error("Token for REST API could not be retrieved. Status code = {}, Content = {}".format(
+            get_logger().error("Token for REST API could not be retrieved. Status code = {}, Content = {}".format(
                 resp.status_code, resp.text))
         return result
 
@@ -45,21 +52,21 @@ class RESTClient(Thread):
         resp = requests.post(url, headers=headers, data=json.dumps(data))
         if resp.status_code == 201:
             if queue.update_message_as_sent(message['id']):
-                logger.debug("Message {} sent with success!".format(message))
+                get_logger().debug("Message {} sent with success!".format(message))
             else:
-                logger.error("Sent flag could not be updated in the queue db.")
+                get_logger().error("Sent flag could not be updated in the queue db.")
         elif resp.status_code == 401:
             self.retrieve_token()
         else:
-            logger.error("Message could not be sent. Status code = {}, Content = {}".format(
+            get_logger().error("Message could not be sent. Status code = {}, Content = {}".format(
                 resp.status_code, resp.text))
 
     def run(self):
-        logger.info("Starting REST client...")
+        get_logger().info("Starting REST client...")
         if self.retrieve_token():
             while True:
                 for message in queue.get_all_not_sent():
                     self.send_message(message)
                 time.sleep(1)
         else:
-            logger.error("Abandoning thread...")
+            get_logger().error("Abandoning thread...")

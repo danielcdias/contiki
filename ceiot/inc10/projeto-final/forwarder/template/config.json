@@ -6,6 +6,10 @@
         "console_level": "DEBUG",
         "file_level": "DEBUG"
     },
+    "db": {
+       "folder": "change-me",
+        "file": "change-me"
+    },
     "mqtt": {
         "connection": {
             "host": "change-me",

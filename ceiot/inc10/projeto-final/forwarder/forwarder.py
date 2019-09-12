@@ -1,8 +1,7 @@
-from mqtt_client import MQTTClient
-from prefs import log_factory
-from rest_client import RESTClient
+import prefs
 
-logger = log_factory.get_new_logger("main")
+from mqtt_client import MQTTClient
+from rest_client import RESTClient
 
 
 def main():
@@ -13,5 +12,6 @@ def main():
 
 
 if __name__ == '__main__':
+    logger = prefs.log_factory.get_new_logger("main")
     logger.info("TV-CWB-IOT Forwarder starting...")
     main()
