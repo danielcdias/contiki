@@ -30,36 +30,42 @@ class RESTClient(Thread):
 
     def retrieve_token(self) -> bool:
         result = False
-        data = {'username': decrypt(prefs['web-service']['username']),
-                'password': decrypt(prefs['web-service']['password'])}
-        url = prefs['web-service']['base_url'] + prefs['web-service']['get_token_service']
-        resp = requests.post(url, data=data)
-        if resp.status_code == 200:
-            self._token = resp.json()['token']
-            result = True
-        else:
-            get_logger().error("Token for REST API could not be retrieved. Status code = {}, Content = {}".format(
-                resp.status_code, resp.text))
+        try:
+            data = {'username': decrypt(prefs['web-service']['username']),
+                    'password': decrypt(prefs['web-service']['password'])}
+            url = prefs['web-service']['base_url'] + prefs['web-service']['get_token_service']
+            resp = requests.post(url, data=data, timeout=prefs['web-service']['timeout'])
+            if resp.status_code == 200:
+                self._token = resp.json()['token']
+                result = True
+            else:
+                get_logger().error("Token for REST API could not be retrieved. Status code = {}, Content = {}".format(
+                    resp.status_code, resp.text))
+        except Exception as ex:
+            get_logger().error("Could not retrieve token due to an exception: {}".format(ex))
         return result
 
     def send_message(self, message: dict):
-        url = prefs['web-service']['base_url'] + prefs['web-service']['message_receiver_service']
-        headers = {
-            CONTENTTYPE_KEY: CONTENTTYPE_VALUE,
-            TOKEN_KEY: TOKEN_VALUE_FORMAT.format(self._token)
-        }
-        data = {"topic": message['topic'], "message": message['payload']}
-        resp = requests.post(url, headers=headers, data=json.dumps(data))
-        if resp.status_code == 201:
-            if queue.update_message_as_sent(message['id']):
-                get_logger().debug("Message {} sent with success!".format(message))
+        try:
+            url = prefs['web-service']['base_url'] + prefs['web-service']['message_receiver_service']
+            headers = {
+                CONTENTTYPE_KEY: CONTENTTYPE_VALUE,
+                TOKEN_KEY: TOKEN_VALUE_FORMAT.format(self._token)
+            }
+            data = {"topic": message['topic'], "message": message['payload']}
+            resp = requests.post(url, headers=headers, data=json.dumps(data), timeout=prefs['web-service']['timeout'])
+            if resp.status_code == 201:
+                if queue.update_message_as_sent(message['id']):
+                    get_logger().debug("Message {} sent with success!".format(message))
+                else:
+                    get_logger().error("Sent flag could not be updated in the queue db.")
+            elif resp.status_code == 401:
+                self.retrieve_token()
             else:
-                get_logger().error("Sent flag could not be updated in the queue db.")
-        elif resp.status_code == 401:
-            self.retrieve_token()
-        else:
-            get_logger().error("Message could not be sent. Status code = {}, Content = {}".format(
-                resp.status_code, resp.text))
+                get_logger().error("Message could not be sent. Status code = {}, Content = {}".format(
+                    resp.status_code, resp.text))
+        except Exception as ex:
+            get_logger().error("Could not send message due to an exception: {}".format(ex))
 
     def run(self):
         get_logger().info("Starting REST client connecting to base URL {}".format(prefs['web-service']['base_url']))

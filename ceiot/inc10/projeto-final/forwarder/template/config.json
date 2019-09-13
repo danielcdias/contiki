@@ -34,7 +34,8 @@
         "get_token_service": "change-me",
         "username": "change-me",
         "password": "change-me",
-        "message_receiver_service": "change-me"
+        "message_receiver_service": "change-me",
+        "timeout": 30
     },
     "email": {
         "host": "change-me",
