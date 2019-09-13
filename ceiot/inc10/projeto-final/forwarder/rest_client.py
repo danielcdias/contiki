@@ -62,7 +62,7 @@ class RESTClient(Thread):
                 resp.status_code, resp.text))
 
     def run(self):
-        get_logger().info("Starting REST client...")
+        get_logger().info("Starting REST client connecting to base URL {}".format(prefs['web-service']['base_url']))
         if self.retrieve_token():
             while True:
                 for message in queue.get_all_not_sent():
