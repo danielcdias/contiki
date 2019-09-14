@@ -66,8 +66,8 @@ TEMPERATURE_SENSOR     Temperature Sensor
 #define RAIN_SENSORS_READ_INTERVAL 0.1 // seconds
 
 // Reading intervals for moisture sensor
-#define MOISTURE_SENSOR_READ_INTERVAL_NO_RAIN 30 // seconds
-#define MOISTURE_SENSOR_READ_INTERVAL_RAIN 15 // seconds
+#define MOISTURE_SENSOR_READ_INTERVAL_NO_RAIN 900 // seconds
+#define MOISTURE_SENSOR_READ_INTERVAL_RAIN 300 // seconds
 
 // Interval to report rain sensor array information
 #define REPORT_RAIN_SENSORS_ARRAY_INTERVAL 2980 // 298 seconds
