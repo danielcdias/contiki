@@ -63,7 +63,7 @@ uint32_t internalADSReading(u_int32_t port) {
 
 uint32_t internalADSReadingAttemps(u_int32_t port) {
    uint32_t result = 0;
-   uint32_t readings[3];
+   uint32_t readings[] = {0, 0, 0};
    uint8_t i, r = 0;
    bool failed = true;
    for (i = 0; i < MAX_READING_ATTEMPTS_ADS; i++) {

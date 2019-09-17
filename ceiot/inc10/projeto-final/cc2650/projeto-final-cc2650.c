@@ -175,8 +175,6 @@ static process_event_t connection_timeout_event;
 
 static process_event_t mqttsn_connack_event, network_inactivity_timeout_reset;
 
-static struct timer publish_delay;
-
 /******************************************************************************
  * Processes definition
  ******************************************************************************/
@@ -338,10 +336,6 @@ static uint32_t get_current_timestamp() {
 }
 
 static void publish_board_status(char data[50]) {
-   // Waits PUBLISH_MESSAGES_DELAY second before publish message
-   timer_set(&publish_delay, CLOCK_SECOND * PUBLISH_MESSAGES_DELAY);
-   while (!timer_expired(&publish_delay));
-
    set_green_led(GREEN_LED_SENDING_MESSAGE);
    static uint8_t buf_len;
    static char buf[64] = "\0";
@@ -362,10 +356,6 @@ static void publish_board_status(char data[50]) {
 
 
 static void publish_sensor_status(const uint8_t topic_index, int data) {
-   // Waits PUBLISH_MESSAGES_DELAY second before publish message
-   timer_set(&publish_delay, CLOCK_SECOND * PUBLISH_MESSAGES_DELAY);
-   while (!timer_expired(&publish_delay));
-
    set_green_led(GREEN_LED_SENDING_MESSAGE);
    static char buf[64] = "\0";
    static uint8_t buf_len;
