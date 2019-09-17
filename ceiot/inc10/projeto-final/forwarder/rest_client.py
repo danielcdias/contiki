@@ -3,9 +3,10 @@ import time
 import json
 
 from encryption_tools import decrypt
+from mail_sender import MailSender
 import message_queue as queue
 from prefs import log_factory, prefs
-from threading import Thread, Event
+from threading import Thread
 
 TOKEN_KEY = "Authorization"
 TOKEN_VALUE_FORMAT = "Token {}"
@@ -62,8 +63,10 @@ class RESTClient(Thread):
             elif resp.status_code == 401:
                 self.retrieve_token()
             else:
-                get_logger().error("Message could not be sent. Status code = {}, Content = {}".format(
-                    resp.status_code, resp.text))
+                get_logger().error(
+                    "Message could not be sent. Headers sent: {}, Data sent: {}, "
+                    "Status code {}, Headers {}, Content: {}".format(
+                        headers, data, resp.status_code, resp.headers, resp.text))
         except Exception as ex:
             get_logger().error("Could not send message due to an exception: {}".format(ex))
 
@@ -76,3 +79,6 @@ class RESTClient(Thread):
                 time.sleep(1)
         else:
             get_logger().error("Abandoning thread...")
+            email = MailSender()
+            email.send_message(prefs['email']['subject'], fromaddr=prefs['email']['from'], to=prefs['email']['to'],
+                               body="Thread REST client encerrada. Verificar logs.")
