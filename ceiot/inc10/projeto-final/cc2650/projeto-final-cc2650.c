@@ -71,7 +71,7 @@
 
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       danieldias.mooo.com //tv-cwb-iot.mooo.com // TODO Lembrar de sempre colocar servidor certo antes de fazer commit
+#define UDP_CONNECTION_ADDR       tv-cwb-iot.mooo.com // danieldias.mooo.com TODO Lembrar de sempre colocar servidor certo antes de fazer commit
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
