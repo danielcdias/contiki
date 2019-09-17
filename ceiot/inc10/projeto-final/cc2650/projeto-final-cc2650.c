@@ -32,6 +32,8 @@
 #include "ti-lib.h"
 #include "dev/leds.h"
 
+#define FIRMWARE_VERSION "01.00.00"
+
 #define DEBUG 1
 
 #include "net/ip/uip-debug.h"
@@ -62,12 +64,14 @@
 
 #define RAIN_SENSORS_STATUS_ARRAY "RSS%u%u%u%u%uPLV%u"
 
+#define FIRMWARE_VERSION_STATUS_ARRAY "FWV%s"
+
 #define MESSAGE_STATUS_FORMAT "%iT%li"
 #define MESSAGE_BOARD_FORMAT "%sT%li"
 
 #ifndef UDP_CONNECTION_ADDR
 #if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       tv-cwb-iot.mooo.com
+#define UDP_CONNECTION_ADDR       danieldias.mooo.com //tv-cwb-iot.mooo.com // TODO Lembrar de sempre colocar servidor certo antes de fazer commit
 #elif UIP_CONF_ROUTER
 #define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
 #else
@@ -105,6 +109,8 @@
 #define BOARD_STATUS_TIMESTAMP_UPDATE_REQUEST "TUR"
 
 #define TIMESTAMP_UPDATE_REQUEST_INTERVAL 86400 // One day in seconds
+
+#define PUBLISH_MESSAGES_DELAY 0.2
 
 /******************************************************************************
  * Global variables and structs definitions
@@ -168,6 +174,8 @@ static struct ctimer connection_timer;
 static process_event_t connection_timeout_event;
 
 static process_event_t mqttsn_connack_event, network_inactivity_timeout_reset;
+
+static struct timer publish_delay;
 
 /******************************************************************************
  * Processes definition
@@ -291,7 +299,7 @@ static void publish_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t 
    PRINTF("[E] Published message received: %s\n", incoming_packet.data);
    if (uip_htons(incoming_packet.topic_id) == pub_sensors_topic[TOPIC_CONTROL].topic_id) {
       if (incoming_packet.data[0] == 'T') {
-         PRINTF(">>> Timestamp from SERVER received!");
+         PRINTF(">>> Timestamp from SERVER received!\n");
          char timestamp_str[11] = "\0";
          memcpy(timestamp_str, &incoming_packet.data[1], 10);
          // TODO Salvar dados recebidos na flash
@@ -330,6 +338,10 @@ static uint32_t get_current_timestamp() {
 }
 
 static void publish_board_status(char data[50]) {
+   // Waits PUBLISH_MESSAGES_DELAY second before publish message
+   timer_set(&publish_delay, CLOCK_SECOND * PUBLISH_MESSAGES_DELAY);
+   while (!timer_expired(&publish_delay));
+
    set_green_led(GREEN_LED_SENDING_MESSAGE);
    static uint8_t buf_len;
    static char buf[64] = "\0";
@@ -350,6 +362,10 @@ static void publish_board_status(char data[50]) {
 
 
 static void publish_sensor_status(const uint8_t topic_index, int data) {
+   // Waits PUBLISH_MESSAGES_DELAY second before publish message
+   timer_set(&publish_delay, CLOCK_SECOND * PUBLISH_MESSAGES_DELAY);
+   while (!timer_expired(&publish_delay));
+
    set_green_led(GREEN_LED_SENDING_MESSAGE);
    static char buf[64] = "\0";
    static uint8_t buf_len;
@@ -362,6 +378,12 @@ static void publish_sensor_status(const uint8_t topic_index, int data) {
    if (result == 0) {
       PRINTF("** Error publishing message **");
    }
+}
+
+static void publish_firmware_version() {
+   char buf[12] = "\0";
+   sprintf(buf, FIRMWARE_VERSION_STATUS_ARRAY, FIRMWARE_VERSION);
+   publish_board_status(buf);
 }
 
 
@@ -506,6 +528,8 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
 
    PROCESS_BEGIN();
 
+   PRINTF("TV-CWB-IOT - Starting with firmware version %s\n", FIRMWARE_VERSION);
+
    process_start(&green_led_process, 0);
    process_start(&red_led_process, 0);
 
@@ -575,7 +599,7 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
         PRINTF("Connection acked.\n");
         ctimer_stop(&connection_timer);
         connection_state = MQTTSN_CONNECTED;
-        connection_retries = 15;//using break here may mess up switch statement of proces
+        connection_retries = 15;  //using break here may mess up switch statement of process
       }
       if (ev == connection_timeout_event) {
          connection_state = MQTTSN_CONNECTION_FAILED;
@@ -620,6 +644,7 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
             break;
          }
       }
+      publish_firmware_version();
       process_start(&rain_sensors_process, NULL);
       process_start(&moisture_sensor_process, NULL);
       if (readGPIOSensor(JUMPER_PLUVIOMETER_INSTALLED) == PLUVIOMETER_INSTALLED) {

@@ -69,6 +69,14 @@ TEMPERATURE_SENSOR     Temperature Sensor
 #define MOISTURE_SENSOR_READ_INTERVAL_NO_RAIN 900 // seconds
 #define MOISTURE_SENSOR_READ_INTERVAL_RAIN 300 // seconds
 
+// Capacitive sensor reading definitions
+#define MIN_VALUE_ACCEPTED_ADS 400000
+#define MAX_VALUE_ACCEPTED_ADS 1500000
+#define MAX_READING_ATTEMPTS_ADS 10
+
+// Temperature sensor reading definitions
+#define MAX_READING_ATTEMPTS_TMP 5
+
 // Interval to report rain sensor array information
 #define REPORT_RAIN_SENSORS_ARRAY_INTERVAL 2980 // 298 seconds
 
@@ -77,7 +85,7 @@ TEMPERATURE_SENSOR     Temperature Sensor
 #define RAIN_SENSOR_RAINING 1
 
 // Timeout after sensor stop to alternate values to assume rain stopped
-#define RAIN_SENSOR_TIMEOUT_RAIN 30 // 30 seconds
+#define RAIN_SENSOR_TIMEOUT_RAIN 300 // 300 seconds
 
 // Minimum number of sensores to detect rain started/ended
 #define RAIN_MIN_SENSORS_DETECT_RAIN 2

@@ -37,6 +37,8 @@
  ******************/
 static struct sensors_sensor *sensorMoisture;
 
+static struct timer reading_timer_ADS, reading_timer_tmp;
+
 /**
  * util.h header functions implementation
  */
@@ -49,23 +51,65 @@ void configureGPIOSensors() {
   IOCPinTypeGpioInput(JUMPER_PLUVIOMETER_INSTALLED);
 }
 
-uint32_t readADSMoistureSensor() {
+uint32_t internalADSReading(u_int32_t port) {
    static uint32_t valueRead;
    sensorMoisture = sensors_find(ADC_SENSOR);
    SENSORS_ACTIVATE(*sensorMoisture);
-   sensorMoisture->configure(ADC_SENSOR_SET_CHANNEL, MOISTURE_SENSOR);
+   sensorMoisture->configure(ADC_SENSOR_SET_CHANNEL, port);
    valueRead = (uint32_t)(sensorMoisture->value(ADC_SENSOR_VALUE));
    SENSORS_DEACTIVATE(*sensorMoisture);
    return valueRead;
+}
+
+uint32_t internalADSReadingAttemps(u_int32_t port) {
+   uint32_t result = 0;
+   uint32_t readings[3];
+   uint8_t i, r = 0;
+   bool failed = true;
+   for (i = 0; i < MAX_READING_ATTEMPTS_ADS; i++) {
+      uint32_t aux = internalADSReading(port);
+      if ((aux >= MIN_VALUE_ACCEPTED_ADS) && (aux <= MAX_VALUE_ACCEPTED_ADS)) {
+         readings[r] = aux;
+         r++;
+         if (r == 3) {
+            failed = false;
+            break;
+         }
+      }
+      timer_set(&reading_timer_ADS, CLOCK_SECOND * 0.05);
+      while (!timer_expired(&reading_timer_ADS));
+   }
+   if (failed) {
+      result = 0;
+   } else {
+      if (r > 0) {
+         uint32_t readings_sum = 0;
+         for (i = 0; i < r; i++) {
+            readings_sum += readings[i];
+         }
+         result = (uint32_t)(readings_sum / r);
+      }
+   }
+   return result;
+}
+
+uint32_t readADSMoistureSensor() {
+   return internalADSReadingAttemps(MOISTURE_SENSOR);
 }
 
 int readTemperatureSensor() {
    (void) ds18b20_probe();
    int result = 0;
    float temp;
-   int ret = ds18b20_get_temp(&temp);
-   if (ret) {
-      result = (uint32_t)(temp * 100);
+   uint8_t i;
+   for (i = 0; i < MAX_READING_ATTEMPTS_TMP; i++) {
+      int ret = ds18b20_get_temp(&temp);
+      if (ret) {
+         result = (uint32_t)(temp * 100);
+         break;
+      }
+      timer_set(&reading_timer_tmp, CLOCK_SECOND * 0.2);
+      while (!timer_expired(&reading_timer_tmp));
    }
    return result;
 }
