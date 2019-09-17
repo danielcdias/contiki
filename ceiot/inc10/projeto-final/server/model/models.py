@@ -63,7 +63,7 @@ class ControlBoard(models.Model):
 
 class ControlBoardEvent(models.Model):
     timestamp = models.DateTimeField()
-    status_received = models.CharField(max_length=10)
+    status_received = models.CharField(max_length=20)
     control_board = models.ForeignKey(ControlBoard, on_delete=models.CASCADE, verbose_name="ControlBoard")
 
     objects = models.Manager()

@@ -135,7 +135,7 @@ def message_receiver(request):
                     result = status.HTTP_400_BAD_REQUEST
             else:
                 board_event_received = board.controlboardevent_set.create(timestamp=timestamp,
-                                                                          status_received=value_str[:10])
+                                                                          status_received=value_str[:20])
                 board_event_received.save()
         else:
             logger.warning("No control board was found with mac address ending with {}.".format(mac_end))
