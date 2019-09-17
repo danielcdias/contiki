@@ -5,6 +5,9 @@ from prefs import log_factory, prefs
 
 FLAG_NOT_SENT = 0
 FLAG_SENT = 1
+FLAG_ERROR_NO_BOARD = 2
+FLAG_ERROR_NO_SENSOR = 3
+FLAG_ERROR_OTHER = 4
 
 DB_TABLE_CREATE = "CREATE TABLE message_queue(id INTEGER PRIMARY KEY AUTOINCREMENT, sent_flag TINYINT NOT NULL " \
                   "DEFAULT 0, topic VARCHAR(100) NOT NULL, payload VARCHAR(100) NOT NULL)"
@@ -17,7 +20,7 @@ DB_TABLE_SELECT_NOT_SENT = "SELECT * FROM message_queue WHERE sent_flag = {}".fo
 
 DB_TABLE_COUNT_NOT_SENT = "SELECT COUNT(*) FROM message_queue WHERE sent_flag = {}".format(FLAG_NOT_SENT)
 
-DB_TABLE_UPDATE_FLAG_SENT = "UPDATE message_queue SET sent_flag = {} WHERE id = ?".format(FLAG_SENT)
+DB_TABLE_UPDATE_FLAG = "UPDATE message_queue SET sent_flag = ? WHERE id = ?"
 
 logger = None
 
@@ -136,14 +139,14 @@ def get_count_not_sent() -> int:
     return result
 
 
-def update_message_as_sent(id: int) -> bool:
+def update_message(id_message: int, flag: int) -> bool:
     result = False
     conn = connect()
     try:
         if conn:
             cursor = conn.cursor()
-            parms = [id]
-            cursor.execute(DB_TABLE_UPDATE_FLAG_SENT, parms)
+            parms = [flag, id_message]
+            cursor.execute(DB_TABLE_UPDATE_FLAG, parms)
             conn.commit()
             cursor.close()
             result = True

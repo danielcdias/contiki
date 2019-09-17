@@ -96,7 +96,7 @@ class NotificationUserViewSet(ReadOnlyModelViewSet):
 def message_receiver(request):
     logger = logging.getLogger("tvcwb")
     logger.debug("'message_receiver' called. Request data: {}".format(request.data))
-    result = status.HTTP_201_CREATED
+    result = Response("Object created with succes!", status.HTTP_201_CREATED)
     data = request.data
     if data and ("topic" in data) and ("message" in data):
         topic = request.data['topic']
@@ -127,19 +127,24 @@ def message_receiver(request):
                         sensor_read_event.save()
                     except ValueError:
                         logger.warning("Value received is not a valid float: {}".format(value_str))
-                        result = status.HTTP_400_BAD_REQUEST
+                        result = Response("Value received is not a valid float: {}".format(value_str),
+                                          status.HTTP_400_BAD_REQUEST)
                 else:
                     logger.warning(
                         "No sensor was found with ID {} for the control board {}.".format(sensor_id,
                                                                                           board.nickname))
-                    result = status.HTTP_400_BAD_REQUEST
+                    result = Response("No sensor was found with ID {} for the control board {}.".format(sensor_id,
+                                                                                                        board.nickname),
+                                      status.HTTP_400_BAD_REQUEST)
             else:
                 board_event_received = board.controlboardevent_set.create(timestamp=timestamp,
                                                                           status_received=value_str[:20])
                 board_event_received.save()
         else:
             logger.warning("No control board was found with mac address ending with {}.".format(mac_end))
-            result = status.HTTP_400_BAD_REQUEST
+            result = Response("No control board was found with mac address ending with {}.".format(mac_end),
+                              status.HTTP_400_BAD_REQUEST)
     else:
-        result = status.HTTP_400_BAD_REQUEST
-    return Response(status=result)
+        logger.warning("The data informed is invalid.")
+        result = Response("The data informed is invalid.", status.HTTP_400_BAD_REQUEST)
+    return result

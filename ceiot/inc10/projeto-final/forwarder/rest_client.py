@@ -56,7 +56,7 @@ class RESTClient(Thread):
             data = {"topic": message['topic'], "message": message['payload']}
             resp = requests.post(url, headers=headers, data=json.dumps(data), timeout=prefs['web-service']['timeout'])
             if resp.status_code == 201:
-                if queue.update_message_as_sent(message['id']):
+                if queue.update_message(message['id'], queue.FLAG_SENT):
                     get_logger().debug("Message {} sent with success!".format(message))
                 else:
                     get_logger().error("Sent flag could not be updated in the queue db.")
@@ -67,6 +67,13 @@ class RESTClient(Thread):
                     "Message could not be sent. Headers sent: {}, Data sent: {}, "
                     "Status code {}, Headers {}, Content: {}".format(
                         headers, data, resp.status_code, resp.headers, resp.text))
+                flag_to_update = queue.FLAG_ERROR_OTHER
+                if resp.text.startswith('"No control board was found with mac address ending with'):
+                    flag_to_update = queue.FLAG_ERROR_NO_BOARD
+                elif resp.text.startswith('"No sensor was found with ID'):
+                    flag_to_update = queue.FLAG_ERROR_NO_SENSOR
+                if not queue.update_message(message['id'], flag_to_update):
+                    get_logger().error("Sent flag could not be updated in the queue db.")
         except Exception as ex:
             get_logger().error("Could not send message due to an exception: {}".format(ex))
 
