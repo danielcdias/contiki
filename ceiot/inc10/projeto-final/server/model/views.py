@@ -2,18 +2,22 @@ import csv
 
 from django.utils import timezone
 from django.http import StreamingHttpResponse
-from django.views import generic
 
 from .models import SensorReadEvent
 from model import data_analyzer as analyzer
+from model.tables import SensorsReadingTable
+from django_filters.views import FilterView
+from django_tables2.views import SingleTableMixin
+from model.filters import SensorReadEventFilter
 
-# TODO Arrumar index.html
-# class IndexView(generic.ListView):
-#     template_name = 'model/index.html'
-#     context_object_name = 'hosts_list'
-#     queryset = ?
 
-# TODO Verificar se é necessário
+class IndexView(SingleTableMixin, FilterView):
+    model = SensorReadEvent
+    table_class = SensorsReadingTable
+    template_name = "model/index.html"
+    filterset_class = SensorReadEventFilter
+
+
 class Echo:
     """An object that implements just the write method of the file-like
     interface.

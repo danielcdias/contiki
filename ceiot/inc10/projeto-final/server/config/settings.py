@@ -41,7 +41,9 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'django_filters',
-    'model'
+    'model',
+    'django_tables2',
+    'bootstrap4'
 ]
 
 MIDDLEWARE = [
