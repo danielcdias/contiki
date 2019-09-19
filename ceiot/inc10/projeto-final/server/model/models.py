@@ -14,7 +14,7 @@ def check_mac_address(value):
 
 
 class BoardVendor(models.Model):
-    description = models.CharField(max_length=100, unique=True, verbose_name="Description")
+    description = models.CharField(max_length=100, unique=True, verbose_name="Descrição")
 
     objects = models.Manager()
 
@@ -23,8 +23,8 @@ class BoardVendor(models.Model):
 
 
 class BoardModel(models.Model):
-    description = models.CharField(max_length=100, unique=True, verbose_name="Description")
-    board_vendor = models.ForeignKey(BoardVendor, on_delete=models.CASCADE, verbose_name="Vendor")
+    description = models.CharField(max_length=100, unique=True, verbose_name="Descrição")
+    board_vendor = models.ForeignKey(BoardVendor, on_delete=models.CASCADE, verbose_name="Fabricante")
 
     objects = models.Manager()
 
@@ -41,11 +41,11 @@ class ControlBoard(models.Model):
         (PROTOTYPE_EXTENSIVE_SIDE, "Modelo Extensivo"),
     )
 
-    nickname = models.CharField(max_length=50, unique=True, verbose_name="Nickname")
+    nickname = models.CharField(max_length=50, unique=True, verbose_name="Apelido")
     mac_address = models.CharField(max_length=17, verbose_name='MAC address', unique=True,
                                    validators=[check_mac_address])
-    prototype_side = models.IntegerField(verbose_name='Prototype side', choices=PrototypeSide)
-    board_model = models.ForeignKey(BoardModel, on_delete=models.CASCADE, verbose_name="Model")
+    prototype_side = models.IntegerField(verbose_name='Lado do modelo', choices=PrototypeSide)
+    board_model = models.ForeignKey(BoardModel, on_delete=models.CASCADE, verbose_name="Modelo")
 
     objects = models.Manager()
 
@@ -64,7 +64,7 @@ class ControlBoard(models.Model):
 class ControlBoardEvent(models.Model):
     timestamp = models.DateTimeField()
     status_received = models.CharField(max_length=20)
-    control_board = models.ForeignKey(ControlBoard, on_delete=models.CASCADE, verbose_name="ControlBoard")
+    control_board = models.ForeignKey(ControlBoard, on_delete=models.CASCADE, verbose_name="Placa Controladora")
 
     objects = models.Manager()
 
@@ -75,10 +75,10 @@ class ControlBoardEvent(models.Model):
 
 
 class SensorType(models.Model):
-    sensor_type = models.CharField(max_length=50, verbose_name="Type")
-    description = models.CharField(max_length=100, verbose_name="Description")
+    sensor_type = models.CharField(max_length=50, verbose_name="Tipo")
+    description = models.CharField(max_length=100, verbose_name="Descrição")
     data_sheet = models.TextField(verbose_name="Data sheet")
-    precision = models.IntegerField(default=0, verbose_name="Decimal precision")
+    precision = models.IntegerField(default=0, verbose_name="Precisão")
 
     objects = models.Manager()
 
@@ -100,11 +100,11 @@ class Sensor(models.Model):
     )
 
     sensor_id = models.CharField(max_length=10, verbose_name="ID")
-    description = models.CharField(max_length=100, verbose_name="Description")
-    sensor_type = models.ForeignKey(SensorType, on_delete=models.CASCADE, verbose_name="Type")
-    sensor_role = models.IntegerField(verbose_name='Sensor role', choices=SensorRole)
-    sensor_reading_conversion = models.FloatField(verbose_name="Sensor reading conversion", default=0.0)
-    control_board = models.ForeignKey(ControlBoard, on_delete=models.CASCADE, verbose_name="Control board")
+    description = models.CharField(max_length=100, verbose_name="Descrição")
+    sensor_type = models.ForeignKey(SensorType, on_delete=models.CASCADE, verbose_name="Tipo")
+    sensor_role = models.IntegerField(verbose_name='Função', choices=SensorRole)
+    sensor_reading_conversion = models.FloatField(verbose_name="Conversão", default=0.0)
+    control_board = models.ForeignKey(ControlBoard, on_delete=models.CASCADE, verbose_name="Placa Controladora")
 
     objects = models.Manager()
 
@@ -117,8 +117,8 @@ class Sensor(models.Model):
 
 
 class SensorReadEvent(models.Model):
-    timestamp = models.DateTimeField()
-    value_read = models.FloatField()
+    timestamp = models.DateTimeField(verbose_name="Data/Hora")
+    value_read = models.FloatField(verbose_name="Valor lido")
     sensor = models.ForeignKey(Sensor, on_delete=models.CASCADE, verbose_name="Sensor")
 
     objects = models.Manager()
