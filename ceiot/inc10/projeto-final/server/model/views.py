@@ -3,12 +3,13 @@ import csv
 from django.utils import timezone
 from django.http import StreamingHttpResponse
 
-from .models import SensorReadEvent
-from model import data_analyzer as analyzer
-from model.tables import SensorsReadingTable
 from django_filters.views import FilterView
 from django_tables2.views import SingleTableMixin
-from model.filters import SensorReadEventFilter
+
+from .models import SensorReadEvent, ControlBoardEvent
+from model import data_analyzer as analyzer
+from model.tables import SensorsReadingTable, ControlBoardReadingTable
+from model.filters import SensorReadEventFilter, ControlBoardEventFilter
 
 
 class IndexView(SingleTableMixin, FilterView):
@@ -16,6 +17,13 @@ class IndexView(SingleTableMixin, FilterView):
     table_class = SensorsReadingTable
     template_name = "model/index.html"
     filterset_class = SensorReadEventFilter
+
+
+class ControlBoardEventsView(SingleTableMixin, FilterView):
+    model = ControlBoardEvent
+    table_class = ControlBoardReadingTable
+    template_name = "model/control_board.html"
+    filterset_class = ControlBoardEventFilter
 
 
 class Echo:
