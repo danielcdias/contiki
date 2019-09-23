@@ -32,7 +32,7 @@
 #include "ti-lib.h"
 #include "dev/leds.h"
 
-#define FIRMWARE_VERSION "01.00.00"
+#define FIRMWARE_VERSION "01.00.01"
 
 #define DEBUG 1
 
@@ -313,8 +313,18 @@ static void pingreq_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t 
    PRINTF("[E] PingReq received\n");
 }
 
+static void pingresp_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen) {
+   //PRINTF("[E] PingResp received\n");
+}
+
 static void disconnect_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen) {
    PRINTF("[E] Disconnection received\n");
+   is_connected = false;
+   reboot_board();
+}
+
+static void keepalive_timeout_receiver(struct mqtt_sn_connection *mqc) {
+   PRINTF("[E] Keepalive timeout received\n");
    is_connected = false;
    reboot_board();
 }
@@ -322,13 +332,13 @@ static void disconnect_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr
 static const struct mqtt_sn_callbacks mqtt_sn_call = {
    publish_receiver,
    pingreq_receiver,
-   NULL,
+   pingresp_receiver,
    connack_receiver,
    regack_receiver,
    puback_receiver,
    suback_receiver,
    disconnect_receiver,
-   NULL
+   keepalive_timeout_receiver
 };
 
 static uint32_t get_current_timestamp() {
@@ -350,7 +360,7 @@ static void publish_board_status(char data[50]) {
                        MQTT_SN_TOPIC_TYPE_NORMAL, buf, buf_len, qos, retain);
    process_post(&inactivity_watchdog_process, network_inactivity_timeout_reset, NULL);
    if (result == 0) {
-      PRINTF("** Error publishing message **");
+      PRINTF("** Error publishing message **\n");
    }
 }
 
@@ -366,7 +376,7 @@ static void publish_sensor_status(const uint8_t topic_index, int data) {
                         MQTT_SN_TOPIC_TYPE_NORMAL, buf, buf_len, qos, retain);
    process_post(&inactivity_watchdog_process, network_inactivity_timeout_reset, NULL);
    if (result == 0) {
-      PRINTF("** Error publishing message **");
+      PRINTF("** Error publishing message **\n");
    }
 }
 
@@ -639,6 +649,8 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
       process_start(&moisture_sensor_process, NULL);
       if (readGPIOSensor(JUMPER_PLUVIOMETER_INSTALLED) == PLUVIOMETER_INSTALLED) {
          process_start(&pluviometer_sensor_process, NULL);
+      } else {
+         PRINTF("### Pluviometer is not installed in this control board.\n");
       }
       etimer_set(&et, 2*CLOCK_SECOND);
       while(!is_rebooting) {
