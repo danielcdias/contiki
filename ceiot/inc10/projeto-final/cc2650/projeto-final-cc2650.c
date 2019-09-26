@@ -32,7 +32,7 @@
 #include "ti-lib.h"
 #include "dev/leds.h"
 
-#define FIRMWARE_VERSION "01.00.01"
+#define FIRMWARE_VERSION "01.01.00"
 
 #define DEBUG 1
 
@@ -62,22 +62,16 @@
 #define TOPIC_STA_GENERAL "/tvcwb1299/mmm/sta/%02X%02X"
 #define TOPIC_CMD "/tvcwb1299/mmm/cmd/%02X%02X"
 
-#define RAIN_SENSORS_STATUS_ARRAY "RSS%u%u%u%u%uPLV%u"
+#define RAIN_SENSORS_STATUS_ARRAY_PLV "RSS%u%u%u%u%uPLV%uPC%u"
+#define RAIN_SENSORS_STATUS_ARRAY "RSS%u%u%u%u%uPC%u"
 
 #define FIRMWARE_VERSION_STATUS_ARRAY "FWV%s"
 
 #define MESSAGE_STATUS_FORMAT "%iT%li"
 #define MESSAGE_BOARD_FORMAT "%sT%li"
 
-#ifndef UDP_CONNECTION_ADDR
-#if RESOLV_CONF_SUPPORTS_MDNS
-#define UDP_CONNECTION_ADDR       tv-cwb-iot.mooo.com // danieldias.mooo.com TODO Lembrar de sempre colocar servidor certo antes de fazer commit
-#elif UIP_CONF_ROUTER
-#define UDP_CONNECTION_ADDR       fd00:0:0:0:0212:7404:0004:0404
-#else
-#define UDP_CONNECTION_ADDR       fe80:0:0:0:6466:6666:6666:6666
-#endif
-#endif /* !UDP_CONNECTION_ADDR */
+#define UDP_CONNECTION_ADDR       tv-cwb-iot.mooo.com
+#define UDP_CONNECTION_ADDR_DEV   danieldias.mooo.com
 
 #define _QUOTEME(x) #x
 #define QUOTEME(x) _QUOTEME(x)
@@ -108,7 +102,7 @@
 #define BOARD_STATUS_STARTED "STT"
 #define BOARD_STATUS_TIMESTAMP_UPDATE_REQUEST "TUR"
 
-#define TIMESTAMP_UPDATE_REQUEST_INTERVAL 86400 // One day in seconds
+#define TIMESTAMP_UPDATE_REQUEST_INTERVAL 86400 // 1 day in seconds
 
 #define PUBLISH_MESSAGES_DELAY 0.2
 
@@ -173,7 +167,14 @@ static enum mqttsn_connection_status connection_state = MQTTSN_DISCONNECTED;
 static struct ctimer connection_timer;
 static process_event_t connection_timeout_event;
 
-static process_event_t mqttsn_connack_event, network_inactivity_timeout_reset;
+static process_event_t mqttsn_connack_event, network_inactivity_timeout_reset,
+         pluviometer_tic_event;
+
+static uint8_t processes_running = 0;
+
+static bool is_pluviometer_installed = false;
+
+static bool is_dev_environment = false;
 
 /******************************************************************************
  * Processes definition
@@ -187,12 +188,13 @@ PROCESS(reboot_process, "Reboots the board");
 PROCESS(green_led_process, "Controls green led indicator");
 PROCESS(red_led_process, "Controls ref led indicator");
 PROCESS(request_timestamp_update, "Send command requesting timestamp update");
+PROCESS(pluviometer_reset_interval_process, "Resets pluviometer when time interval is reached");
 
 PROCESS(rain_sensors_process, "Reads from all rain sensors");
 PROCESS(moisture_sensor_process, "Reads from capacitive soil moisture and temperature sensors");
 PROCESS(pluviometer_sensor_process, "Receives events from pluviometer sensor");
 
-AUTOSTART_PROCESSES(&mqttsn_process, &request_timestamp_update);
+AUTOSTART_PROCESSES(&mqttsn_process);
 
 /******************************************************************************
  * Functions implementation
@@ -202,11 +204,15 @@ AUTOSTART_PROCESSES(&mqttsn_process, &request_timestamp_update);
 
 void reboot_board() {
    is_rebooting = true;
-   process_start(&reboot_process, 0);
+   process_start(&reboot_process, NULL);
 }
 
 void loop_forever() {
-   while (true);
+   while (1) {
+      static uint32_t i;
+      for (i = 0; i < 100000; i++);
+      leds_toggle(LEDS_ALL);
+   }
 }
 
 void set_green_led(uint8_t value ) {
@@ -313,10 +319,6 @@ static void pingreq_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t 
    PRINTF("[E] PingReq received\n");
 }
 
-static void pingresp_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen) {
-   //PRINTF("[E] PingResp received\n");
-}
-
 static void disconnect_receiver(struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen) {
    PRINTF("[E] Disconnection received\n");
    is_connected = false;
@@ -332,7 +334,7 @@ static void keepalive_timeout_receiver(struct mqtt_sn_connection *mqc) {
 static const struct mqtt_sn_callbacks mqtt_sn_call = {
    publish_receiver,
    pingreq_receiver,
-   pingresp_receiver,
+   NULL,
    connack_receiver,
    regack_receiver,
    puback_receiver,
@@ -410,19 +412,24 @@ static resolv_status_t set_connection_address(uip_ipaddr_t *ipaddr) {
 
    resolv_status_t status = RESOLV_STATUS_ERROR;
 
-   if(uiplib_ipaddrconv(QUOTEME(UDP_CONNECTION_ADDR), ipaddr) == 0) {
+   static char mqtt_host[100] = QUOTEME(UDP_CONNECTION_ADDR);
+   if (is_dev_environment) {
+      strcpy(mqtt_host, QUOTEME(UDP_CONNECTION_ADDR_DEV));
+   }
+
+   if(uiplib_ipaddrconv(mqtt_host, ipaddr) == 0) {
       uip_ipaddr_t *resolved_addr = NULL;
-      status = resolv_lookup(QUOTEME(UDP_CONNECTION_ADDR),&resolved_addr);
+      status = resolv_lookup(mqtt_host, &resolved_addr);
       if(status == RESOLV_STATUS_UNCACHED || status == RESOLV_STATUS_EXPIRED) {
-         PRINTF("Attempting to look up %s\n",QUOTEME(UDP_CONNECTION_ADDR));
-         resolv_query(QUOTEME(UDP_CONNECTION_ADDR));
+         PRINTF("Attempting to look up %s\n", mqtt_host);
+         resolv_query(mqtt_host);
          status = RESOLV_STATUS_RESOLVING;
       } else if(status == RESOLV_STATUS_CACHED && resolved_addr != NULL) {
-         PRINTF("Lookup of \"%s\" succeded!\n",QUOTEME(UDP_CONNECTION_ADDR));
+         PRINTF("Lookup of \"%s\" succeded!\n", mqtt_host);
       } else if(status == RESOLV_STATUS_RESOLVING) {
-         PRINTF("Still looking up \"%s\"...\n",QUOTEME(UDP_CONNECTION_ADDR));
+         PRINTF("Still looking up \"%s\"...\n", mqtt_host);
       } else {
-         PRINTF("Lookup of \"%s\" failed. status = %d\n",QUOTEME(UDP_CONNECTION_ADDR),status);
+         PRINTF("Lookup of \"%s\" failed. status = %d\n", mqtt_host, status);
       }
       if(resolved_addr) {
          uip_ipaddr_copy(ipaddr, resolved_addr);
@@ -444,10 +451,12 @@ static resolv_status_t set_connection_address(uip_ipaddr_t *ipaddr) {
  * Registers the topics used to report statuses from sensors.
  */
 PROCESS_THREAD(publish_process, ev, data) {
+   PROCESS_BEGIN();
+   PRINTF("--->>> Starting process thread 'publish_process'\n");
+   processes_running++;
    static uint8_t registration_tries, rreq_result, rreq_results = 0;
    static struct etimer send_timer;
 
-   PROCESS_BEGIN();
 
    send_interval = DEFAULT_SEND_INTERVAL;
    static uint8_t i;
@@ -458,7 +467,7 @@ PROCESS_THREAD(publish_process, ev, data) {
       rreq_result = 0;
       while ((!is_rebooting) && (registration_tries < REQUEST_RETRIES)) {
          pub_sensors_topic[i].message_id = mqtt_sn_register_try(rreq, &mqtt_sn_c, pub_sensors_topic[i].topic, REPLY_TIMEOUT);
-         etimer_set(&send_timer, 1*CLOCK_SECOND);
+         etimer_set(&send_timer, 1 * CLOCK_SECOND);
          PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &send_timer);
          if (mqtt_sn_request_success(rreq)) {
             registration_tries = REQUEST_RETRIES;
@@ -481,6 +490,8 @@ PROCESS_THREAD(publish_process, ev, data) {
       are_sta_topics_registered = true;
       PRINTF("All topics registered.\n");
    }
+   PRINTF("<<<--- Ending process thread 'publish_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
@@ -488,10 +499,12 @@ PROCESS_THREAD(publish_process, ev, data) {
  * Registers the topic used as command receiver (control).
  */
 PROCESS_THREAD(ctrl_subscription_process, ev, data) {
+   PROCESS_BEGIN();
+   PRINTF("--->>> Starting process thread 'ctrl_subscription_process'\n");
+   processes_running++;
    static uint8_t subscription_tries;
    static mqtt_sn_subscribe_request *sreq = &subreq;
    static struct etimer periodic_timer;
-   PROCESS_BEGIN();
    subscription_tries = 0;
    PRINTF("Requesting subscription\n");
    while ((!is_rebooting) && (subscription_tries < REQUEST_RETRIES)) {
@@ -512,6 +525,8 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data) {
           }
       }
    }
+   PRINTF("<<<--- Ending process thread 'ctrl_subscription_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
@@ -519,6 +534,10 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data) {
  * Starts all MQTT communication and all other processes.
  */
 PROCESS_THREAD(mqttsn_process, ev, data) {
+   PROCESS_BEGIN();
+
+   PRINTF("--->>> Starting process thread 'mqttsn_process'\n");
+   processes_running++;
    static struct etimer periodic_timer;
    static struct etimer et;
    static uip_ipaddr_t broker_addr,google_dns;
@@ -526,19 +545,17 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
    static resolv_status_t status;
    char contiki_hostname[16];
 
-   PROCESS_BEGIN();
-
    PRINTF("TV-CWB-IOT - Starting with firmware version %s\n", FIRMWARE_VERSION);
 
-   process_start(&green_led_process, 0);
-   process_start(&red_led_process, 0);
+   process_start(&green_led_process, NULL);
+   process_start(&red_led_process, NULL);
 
    etimer_set(&et, CLOCK_SECOND * 1);
    PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
 
-   sprintf(contiki_hostname,"node%02X%02X",linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7]);
+   sprintf(contiki_hostname, "node%02X%02X", linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7]);
    resolv_set_hostname(contiki_hostname);
-   PRINTF("----- Setting hostname to %s\n",contiki_hostname);
+   PRINTF("====== Setting hostname to %s\n", contiki_hostname);
 
    mqttsn_connack_event = process_alloc_event();
 
@@ -563,6 +580,8 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
       uip_nameserver_update(&google_dns, UIP_NAMESERVER_INFINITE_LIFETIME);
    }
 
+   is_dev_environment = (readGPIOSensor(DEV_ENVIRONMENT_JUMPER) == DEV_ENVIRONMENT);
+
    status = RESOLV_STATUS_UNCACHED;
    connection_retries = 0;
    while ((!is_rebooting) && (status != RESOLV_STATUS_CACHED)) {
@@ -582,87 +601,98 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
       }
    }
 
-   mqtt_sn_create_socket(&mqtt_sn_c,UDP_PORT, &broker_addr, UDP_PORT);
-   (&mqtt_sn_c)->mc = &mqtt_sn_call;
+   if (!is_rebooting) {
+      mqtt_sn_create_socket(&mqtt_sn_c,UDP_PORT, &broker_addr, UDP_PORT);
+      (&mqtt_sn_c)->mc = &mqtt_sn_call;
 
-   sprintf(mqtt_client_id,"sens%02X%02X%02X%02X",linkaddr_node_addr.u8[4],linkaddr_node_addr.u8[5],linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7]);
+      sprintf(mqtt_client_id,"sens%02X%02X%02X%02X",linkaddr_node_addr.u8[4],linkaddr_node_addr.u8[5],linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7]);
 
-   PRINTF("Requesting connection...\n");
-   connection_timeout_event = process_alloc_event();
-   connection_retries = 0;
-   ctimer_set(&connection_timer, REPLY_TIMEOUT, connection_timer_callback, NULL);
-   mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
-   connection_state = MQTTSN_WAITING_CONNACK;
-   while ((!is_rebooting) && (connection_retries < 11)) {
-     PROCESS_WAIT_EVENT();
-     if (ev == mqttsn_connack_event) {
-        PRINTF("Connection acked.\n");
-        ctimer_stop(&connection_timer);
-        connection_state = MQTTSN_CONNECTED;
-        connection_retries = 15;  //using break here may mess up switch statement of process
-      }
-      if (ev == connection_timeout_event) {
-         connection_state = MQTTSN_CONNECTION_FAILED;
-         connection_retries++;
-         PRINTF("Connection timeout (%i).\n", connection_retries);
-         ctimer_restart(&connection_timer);
-         if (connection_retries < 15) {
-            mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
-            connection_state = MQTTSN_WAITING_CONNACK;
+      PRINTF("Requesting connection...\n");
+      connection_timeout_event = process_alloc_event();
+      connection_retries = 0;
+      ctimer_set(&connection_timer, REPLY_TIMEOUT, connection_timer_callback, NULL);
+      mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
+      connection_state = MQTTSN_WAITING_CONNACK;
+      while ((!is_rebooting) && (connection_retries < 11)) {
+        PROCESS_WAIT_EVENT();
+        if (ev == mqttsn_connack_event) {
+           PRINTF("Connection acked.\n");
+           ctimer_stop(&connection_timer);
+           connection_state = MQTTSN_CONNECTED;
+           connection_retries = 15;  //using break here may mess up switch statement of process
+         }
+         if (ev == connection_timeout_event) {
+            connection_state = MQTTSN_CONNECTION_FAILED;
+            connection_retries++;
+            PRINTF("Connection timeout (%i).\n", connection_retries);
+            ctimer_restart(&connection_timer);
+            if (connection_retries < 15) {
+               mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
+               connection_state = MQTTSN_WAITING_CONNACK;
+            }
          }
       }
-   }
-   ctimer_stop(&connection_timer);
-   if (connection_state == MQTTSN_CONNECTED){
-      is_connected = true;
-      init_sensor_topics_array();
-      process_start(&ctrl_subscription_process, 0);
-      process_start(&publish_process, 0);
-      process_start(&inactivity_watchdog_process, NULL);
-      static uint8_t i = 0;
-      while ((!is_rebooting) && ((!are_sta_topics_registered) || (!is_cmd_topic_registered))) {
-         etimer_set(&et, 0.1 * CLOCK_SECOND);
-         PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
-         i++;
-         if (i >= 200) {
-            PRINTF("***** Taking too long to register topics...\n");
-            reboot_board();
-            break;
+      ctimer_stop(&connection_timer);
+      if (connection_state == MQTTSN_CONNECTED){
+         is_connected = true;
+         init_sensor_topics_array();
+         process_start(&ctrl_subscription_process, NULL);
+         process_start(&publish_process, NULL);
+         process_start(&inactivity_watchdog_process, NULL);
+         static uint8_t i = 0;
+         while ((!is_rebooting) && ((!are_sta_topics_registered) || (!is_cmd_topic_registered))) {
+            etimer_set(&et, 0.1 * CLOCK_SECOND);
+            PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
+            i++;
+            if (i >= 200) {
+               PRINTF("***** Taking too long to register topics...\n");
+               reboot_board();
+               break;
+            }
          }
-      }
-      set_red_led(RED_LED_CONNECTED);
-      set_green_led(GREEN_LED_NO_MESSAGE);
-      publish_board_status(BOARD_STATUS_STARTED);
-      i = 0;
-      while (base_timestamp_from_server == 0) {
-         etimer_set(&et, 1 * CLOCK_SECOND);
-         PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
-         i++;
-         if (i >= 60) {
-            PRINTF("***** Taking too long to received base timestamp...\n");
-            reboot_board();
-            break;
+         if (!is_rebooting) {
+            set_red_led(RED_LED_CONNECTED);
+            set_green_led(GREEN_LED_NO_MESSAGE);
+            publish_board_status(BOARD_STATUS_STARTED);
+            i = 0;
+            while (base_timestamp_from_server == 0) {
+               etimer_set(&et, CLOCK_SECOND);
+               PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
+               i++;
+               if (i >= 60) {
+                  PRINTF("***** Taking too long to received base timestamp...\n");
+                  reboot_board();
+                  break;
+               }
+            }
+            if (!is_rebooting) {
+               publish_firmware_version();
+               process_start(&request_timestamp_update, NULL);
+               process_start(&rain_sensors_process, NULL);
+               process_start(&moisture_sensor_process, NULL);
+               is_pluviometer_installed = (readGPIOSensor(JUMPER_PLUVIOMETER_INSTALLED) == PLUVIOMETER_INSTALLED);
+               if (is_pluviometer_installed)  {
+                  process_start(&pluviometer_sensor_process, NULL);
+                  process_start(&pluviometer_reset_interval_process, NULL);
+               } else {
+                  PRINTF("### Pluviometer is not installed in this control board.\n");
+               }
+               etimer_set(&et, 2*CLOCK_SECOND);
+               while(!is_rebooting) {
+                  PROCESS_WAIT_EVENT();
+                  if(etimer_expired(&et)) {
+                     etimer_restart(&et);
+                  }
+               }
+            }
          }
-      }
-      publish_firmware_version();
-      process_start(&rain_sensors_process, NULL);
-      process_start(&moisture_sensor_process, NULL);
-      if (readGPIOSensor(JUMPER_PLUVIOMETER_INSTALLED) == PLUVIOMETER_INSTALLED) {
-         process_start(&pluviometer_sensor_process, NULL);
       } else {
-         PRINTF("### Pluviometer is not installed in this control board.\n");
+         PRINTF("Unable to connect!\n");
+         reboot_board();
       }
-      etimer_set(&et, 2*CLOCK_SECOND);
-      while(!is_rebooting) {
-         PROCESS_WAIT_EVENT();
-         if(etimer_expired(&et)) {
-            etimer_restart(&et);
-         }
-      }
-   } else {
-      PRINTF("Unable to connect!\n");
-      reboot_board();
    }
+   PRINTF("<<<--- Ending process thread 'mqttsn_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
@@ -672,8 +702,13 @@ PROCESS_THREAD(mqttsn_process, ev, data) {
  * Detects inactivity and call reboot_board() function.
  */
 PROCESS_THREAD(inactivity_watchdog_process, ev, data) {
-   static struct etimer inactivity_timer;
    PROCESS_BEGIN();
+
+   PRINTF("--->>> Starting process thread 'inactivity_watchdog_process'\n");
+   processes_running++;
+
+   static struct etimer inactivity_timer;
+
    network_inactivity_timeout_reset = process_alloc_event();
    etimer_set(&inactivity_timer, INACTIVITY_TIMEOUT);
    while (!is_rebooting) {
@@ -687,21 +722,30 @@ PROCESS_THREAD(inactivity_watchdog_process, ev, data) {
          etimer_restart(&inactivity_timer);
       }
    }
+   PRINTF("<<<--- Ending process thread 'inactivity_watchdog_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
 /**
- * Detects inactivity and call reboot_board() function.
+ * Set leds to notify board will reset and forces watchdor to reset
  */
 PROCESS_THREAD(reboot_process, ev, data) {
-   static struct etimer et;
    PROCESS_BEGIN();
+
+   PRINTF("--->>> Starting process thread 'reboot_process'\n");
+   processes_running++;
+   static struct etimer et;
+
    set_red_led(RED_LED_OFF_REBOOTING);
    set_green_led(GREEN_LED_OFF_REBOOTING);
-   etimer_set(&et, CLOCK_SECOND * 1);
-   PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+   while (processes_running > 1) {
+      etimer_set(&et, CLOCK_SECOND);
+      PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
+   }
    leds_off(LEDS_ALL);
-   PRINTF("***** Watchdog detected network inactivity/disconnection. REBOOTING board...\n\n\n");
+
+   PRINTF("\n***** Watchdog detected network inactivity/disconnection. REBOOTING board...\n\n\n");
    static uint8_t i;
    for (i = 0; i < 7; i++) {
       leds_toggle(LEDS_ALL);
@@ -712,6 +756,8 @@ PROCESS_THREAD(reboot_process, ev, data) {
       PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
    }
    loop_forever();
+   PRINTF("<<<--- Ending process thread 'reboot_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
@@ -721,8 +767,10 @@ PROCESS_THREAD(reboot_process, ev, data) {
  * Controls the green led (used to reporting MQTT messaging exchange).
  */
 PROCESS_THREAD(green_led_process, ev, data) {
-   static struct etimer et;
    PROCESS_BEGIN();
+   PRINTF("--->>> Starting process thread 'green_led_process'\n");
+   processes_running++;
+   static struct etimer et;
    leds_off(LEDS_GREEN);
    while (!is_rebooting) {
       if (green_led_state == GREEN_LED_SENDING_MESSAGE) {
@@ -738,6 +786,8 @@ PROCESS_THREAD(green_led_process, ev, data) {
       etimer_set(&et, CLOCK_SECOND * 0.1);
       PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
    }
+   PRINTF("<<<--- Ending process thread 'green_led_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
@@ -745,8 +795,10 @@ PROCESS_THREAD(green_led_process, ev, data) {
  * Controls the red led (used to reporting MQTT connection status).
  */
 PROCESS_THREAD(red_led_process, ev, data) {
-   static struct etimer et;
    PROCESS_BEGIN();
+   PRINTF("--->>> Starting process thread 'red_led_process'\n");
+   processes_running++;
+   static struct etimer et;
    leds_off(LEDS_RED);
    while (!is_rebooting) {
       if (red_led_state == RED_LED_CONNECTING) {
@@ -762,6 +814,8 @@ PROCESS_THREAD(red_led_process, ev, data) {
       etimer_set(&et, CLOCK_SECOND * 0.6);
       PROCESS_WAIT_EVENT_UNTIL(ev = PROCESS_EVENT_TIMER);
    }
+   PRINTF("<<<--- Ending process thread 'red_led_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
@@ -771,9 +825,11 @@ PROCESS_THREAD(red_led_process, ev, data) {
  * Controls the reading status of all reain sensors.
  */
 PROCESS_THREAD(rain_sensors_process, ev, data) {
-   static struct etimer et;
-
    PROCESS_BEGIN();
+
+   PRINTF("--->>> Starting process thread 'rain_sensors_process'\n");
+   processes_running++;
+   static struct etimer et;
 
    configureGPIOSensors();
 
@@ -845,10 +901,6 @@ PROCESS_THREAD(rain_sensors_process, ev, data) {
          if (rainSensorState[3] == RAIN_SENSOR_NOT_RAINING) {
             publish_sensor_status(TOPIC_RAIN_SENSOR_SURFACE_4, RAIN_SENSOR_NOT_RAINING);
          }
-         if (readGPIOSensor(JUMPER_PLUVIOMETER_INSTALLED) == PLUVIOMETER_INSTALLED) {
-            pluviometer_counter = 0;
-            publish_sensor_status(TOPIC_PLUVIOMETER, pluviometer_counter);
-         }
          peak_delay_reported = false;
       }
 
@@ -858,13 +910,23 @@ PROCESS_THREAD(rain_sensors_process, ev, data) {
       rsa_interval_counter++;
       if (rsa_interval_counter >= REPORT_RAIN_SENSORS_ARRAY_INTERVAL) {
          rsa_interval_counter = 0;
-         char rsa_values[17];
-         sprintf(rsa_values, RAIN_SENSORS_STATUS_ARRAY, rainSensorState[0], rainSensorState[1], rainSensorState[2], rainSensorState[3], rainSensorState[4], pluviometer_counter);
+         char rsa_values[20] = "\0";
+         if (is_pluviometer_installed) {
+            sprintf(rsa_values, RAIN_SENSORS_STATUS_ARRAY_PLV,
+                     rainSensorState[0], rainSensorState[1], rainSensorState[2], rainSensorState[3], rainSensorState[4],
+                     pluviometer_counter, processes_running);
+         } else {
+            sprintf(rsa_values, RAIN_SENSORS_STATUS_ARRAY,
+                     rainSensorState[0], rainSensorState[1], rainSensorState[2], rainSensorState[3], rainSensorState[4],
+                     processes_running);
+         }
          publish_board_status(rsa_values);
       }
 
    }
 
+   PRINTF("<<<--- Ending process thread 'rain_sensors_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
@@ -872,30 +934,36 @@ PROCESS_THREAD(rain_sensors_process, ev, data) {
  * Controls the reading status of the capacitive soil moisture and temperature sensors.
  */
 PROCESS_THREAD(moisture_sensor_process, ev, data) {
-   static struct etimer et;
-
    PROCESS_BEGIN();
 
+   PRINTF("--->>> Starting process thread 'moisture_sensor_process'\n");
+   processes_running++;
+   static struct etimer et;
+
    static bool first_temp_reading = true;
+   static uint32_t counter = 0;
 
    while ((!is_rebooting) && (is_connected)) {
-      uint32_t moistureSensorRead = readADSMoistureSensor();
-      int temperatureSensorRead = readTemperatureSensor();
-      if ((first_temp_reading) && (temperatureSensorRead == 8500)) {
-         first_temp_reading = false;
-      } else {
-         printf("##### Moisture sensor - value read: %li ##### Temperature sensor - value read: %i\n", moistureSensorRead, temperatureSensorRead);
-         publish_sensor_status(TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR, moistureSensorRead);
-         publish_sensor_status(TOPIC_TEMPERATURE_SENSOR, temperatureSensorRead);
+      uint32_t interval_diff = (is_raining ? MOISTURE_SENSOR_READ_INTERVAL_RAIN : MOISTURE_SENSOR_READ_INTERVAL_NO_RAIN);
+      if (counter >= interval_diff) {
+         counter = 0;
+         uint32_t moistureSensorRead = readADSMoistureSensor();
+         int temperatureSensorRead = readTemperatureSensor();
+         if ((first_temp_reading) && (temperatureSensorRead == 8500)) {
+            first_temp_reading = false;
+         } else {
+            printf("##### Moisture sensor - value read: %li ##### Temperature sensor - value read: %i\n", moistureSensorRead, temperatureSensorRead);
+            publish_sensor_status(TOPIC_CAPACITIVE_SOIL_MOISTURE_SENSOR, moistureSensorRead);
+            publish_sensor_status(TOPIC_TEMPERATURE_SENSOR, temperatureSensorRead);
+         }
       }
-      if (is_raining) {
-         etimer_set(&et, (MOISTURE_SENSOR_READ_INTERVAL_RAIN  * CLOCK_SECOND));
-       } else {
-         etimer_set(&et, (MOISTURE_SENSOR_READ_INTERVAL_NO_RAIN  * CLOCK_SECOND));
-      }
-      PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
+      etimer_set(&et, CLOCK_SECOND);
+      PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER);
+      counter++;
    }
 
+   PRINTF("<<<--- Ending process thread 'moisture_sensor_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
@@ -904,21 +972,63 @@ PROCESS_THREAD(moisture_sensor_process, ev, data) {
  */
 PROCESS_THREAD(pluviometer_sensor_process, ev, data) {
    PROCESS_BEGIN();
+
+   PRINTF("--->>> Starting process thread 'pluviometer_sensor_process'\n");
+   processes_running++;
+
    SENSORS_ACTIVATE(pluviometer_sensor);
 
    while ((!is_rebooting) && (is_connected)) {
       PROCESS_YIELD();
-
       if(ev == sensors_event) {
           if(data == &pluviometer_sensor) {
              printf("##### Pluviometer Sensor event received!\n");
              pluviometer_counter++;
              publish_sensor_status(TOPIC_PLUVIOMETER, pluviometer_counter);
+             process_post(&pluviometer_reset_interval_process, pluviometer_tic_event, NULL);
           }
       }
    }
 
    SENSORS_DEACTIVATE(pluviometer_sensor);
+   PRINTF("<<<--- Ending process thread 'pluviometer_sensor_process'\n");
+   processes_running--;
+   PROCESS_END();
+}
+
+/**
+ * Resets pluviometer counter when time is reached
+ */
+PROCESS_THREAD(pluviometer_reset_interval_process, ev, data) {
+   PROCESS_BEGIN();
+
+   PRINTF("--->>> Starting process thread 'pluviometer_reset_interval_process'\n");
+   processes_running++;
+   static struct etimer et;
+   static uint32_t counter = 0;
+   pluviometer_tic_event = process_alloc_event();
+
+   etimer_set(&et, CLOCK_SECOND);
+   while ((!is_rebooting) && (is_connected)) {
+      counter++;
+      PROCESS_WAIT_EVENT();
+      if (ev == pluviometer_tic_event) {
+         counter = 0;
+      }
+      if (ev == PROCESS_EVENT_TIMER) {
+         if (counter >= PLUVIOMETER_WAIT_INTERVAL_TO_RESET) {
+            if (pluviometer_counter > 0) {
+               pluviometer_counter = 0;
+               publish_sensor_status(TOPIC_PLUVIOMETER, pluviometer_counter);
+            }
+            counter = 0;
+         }
+      }
+      etimer_restart(&et);
+   }
+
+   PRINTF("<<<--- Ending process thread 'pluviometer_reset_interval_process'\n");
+   processes_running--;
    PROCESS_END();
 }
 
@@ -928,13 +1038,23 @@ PROCESS_THREAD(pluviometer_sensor_process, ev, data) {
 PROCESS_THREAD(request_timestamp_update, ev, data) {
    PROCESS_BEGIN();
 
+   PRINTF("--->>> Starting process thread 'request_timestamp_update'\n");
+   processes_running++;
    static struct etimer et;
+   static uint32_t counter = 0;
 
-   while (true) {
-      etimer_set(&et, (TIMESTAMP_UPDATE_REQUEST_INTERVAL  * CLOCK_SECOND));
-      PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && data == &et);
-      publish_board_status(BOARD_STATUS_TIMESTAMP_UPDATE_REQUEST);
+   // TODO Verificar porque não envia se intervalo setado para 1 dia
+   while ((!is_rebooting) && (is_connected)) {
+      etimer_set(&et, CLOCK_SECOND);
+      PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER);
+      counter++;
+      if (counter >= TIMESTAMP_UPDATE_REQUEST_INTERVAL) {
+         publish_board_status(BOARD_STATUS_TIMESTAMP_UPDATE_REQUEST);
+         counter = 0;
+      }
    }
 
+   PRINTF("<<<--- Ending process thread 'request_timestamp_update'\n");
+   processes_running--;
    PROCESS_END();
 }

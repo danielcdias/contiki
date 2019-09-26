@@ -62,11 +62,14 @@ TEMPERATURE_SENSOR     Temperature Sensor
 // Pluviometer installed jumper indicator port (GPIO)
 #define JUMPER_PLUVIOMETER_INSTALLED IOID_21
 
+// Pluviometer wait interval to reset
+#define PLUVIOMETER_WAIT_INTERVAL_TO_RESET 900 // seconds
+
 // Reading interval for rain sensors
 #define RAIN_SENSORS_READ_INTERVAL 0.1 // seconds
 
 // Reading intervals for moisture sensor
-#define MOISTURE_SENSOR_READ_INTERVAL_NO_RAIN 900 // seconds
+#define MOISTURE_SENSOR_READ_INTERVAL_NO_RAIN 3600 // seconds
 #define MOISTURE_SENSOR_READ_INTERVAL_RAIN 300 // seconds
 
 // Capacitive sensor reading definitions
@@ -94,8 +97,12 @@ TEMPERATURE_SENSOR     Temperature Sensor
 #define PLUVIOMETER_INSTALLED 1
 #define PLUVIOMETER_NOT_INSTALLED 0
 
-// Pluviometer possible value
-#define PLUVIOMETER_VALUE 1
+// Indicates if board is running in development environment
+#define DEV_ENVIRONMENT_JUMPER IOID_22
+
+// Possible valued for dev environment jumper
+#define DEV_ENVIRONMENT 1
+#define PROD_ENVIRONMENT 0
 
 /******************************** Sensor IDs **********************************/
 
