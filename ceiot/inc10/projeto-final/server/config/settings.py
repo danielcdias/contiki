@@ -27,7 +27,7 @@ SECRET_KEY = os.environ.get('IOT_DJANGO_SECRET_KEY', '2+pdkppe%fx9+6j$p&b(zt2mu+
 
 DEBUG = os.environ.get('IOT_DJANGO_DEBUG', False)
 
-ALLOWED_HOSTS = os.environ.get('IOT_DJANGO_ALLOWED_HOSTS', [])
+ALLOWED_HOSTS = os.environ.get('IOT_DJANGO_ALLOWED_HOSTS', ['*'])
 
 # Application definition
 

@@ -17,6 +17,7 @@ class IndexView(SingleTableMixin, FilterView):
     table_class = SensorsReadingTable
     template_name = "model/index.html"
     filterset_class = SensorReadEventFilter
+    queryset = SensorReadEvent.objects.all().order_by('-timestamp')
 
 
 class ControlBoardEventsView(SingleTableMixin, FilterView):
@@ -24,6 +25,7 @@ class ControlBoardEventsView(SingleTableMixin, FilterView):
     table_class = ControlBoardReadingTable
     template_name = "model/control_board.html"
     filterset_class = ControlBoardEventFilter
+    queryset = ControlBoardEvent.objects.all().order_by('-timestamp')
 
 
 class Echo:

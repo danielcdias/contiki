@@ -3,6 +3,8 @@ from .models import SensorReadEvent, ControlBoardEvent
 
 
 class SensorsReadingTable(tables.Table):
+    value_read = tables.Column(attrs={"td": {"align": "right"}})
+
     class Meta:
         model = SensorReadEvent
         template_name = "django_tables2/bootstrap.html"
